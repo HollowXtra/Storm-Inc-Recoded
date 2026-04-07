@@ -62,12 +62,6 @@ BASE_STATIONS = [
     ["三棵松", 0, 0, 114.308, 22.712, "G3508", "宝龙"], ["沙湖", 0, 0, 114.3, 22.669, "G3753", "碧岭"]
 ]
 
-if os.path.exists(MAPPING_FILE):
-    with open(MAPPING_FILE, "r", encoding="utf-8") as f:
-        value_mapping = json.load(f)
-else:
-    value_mapping = {}
-
 def get_value_from_b64(b64_str):
     raw_b64 = b64_str.split(',')[-1]
     if raw_b64 in value_mapping:
