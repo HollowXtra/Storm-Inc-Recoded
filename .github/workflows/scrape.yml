@@ -3,7 +3,7 @@ name: SZ Weather Auto Scraper
 on:
   schedule:
     # 保持每 15 分钟一次的设定
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch: # 保持手动触发功能
 
 jobs:
