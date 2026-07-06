@@ -3,57 +3,48 @@ name: SZ Weather Auto Scraper
 on:
   schedule:
     # 这里的 cron 时间是 UTC 时间
-    # UTC 10,30,50 分 对应 北京时间 10,30,50 分 (小时数+8)
-    - cron: '10,40 * * * *'
+    # UTC 45 分 对应 北京时间 45 分 (小时数+8)
+    - cron: '45 * * * *'
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-22.04 
-    permissions:
-      contents: write
-    
-    # ++++++ 添加以下行来设置全局时区为北京时间 ++++++
-    env:
-      TZ: Asia/Shanghai
-    # -----------------------------------------------
-
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20     # 防止某次卡死导致 Actions 一直挂着不结束
+ 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
-        cache: 'pip'
-
-    - name: Install Essential Linux Dependencies
-      # 仅保留 ddddocr 和 OpenCV 必须的系统库，缩短安装时间
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libgl1-mesa-glx libglib2.0-0
-
-    - name: Install Python Packages
-      # 配合上面的 cache 选项，这里会自动跳过已缓存的包
-      run: |
-        python -m pip install --upgrade pip
-        pip install selenium webdriver-manager ddddocr Pillow requests
-
-    - name: Run Scraper
-    # 此时运行 wind.py，其内部获取的时间即为北京时间
-      run: |
-        python wind.py 
-
-    - name: Commit and Push
-      # 只有在 CSV 文件有变动时才会执行提交，避免产生空的提交记录
-      run: |
-        git config --global user.name "GitHub Action"
-        git config --global user.email "action@github.com"
-        git add .
-        if [ -n "$(git status --porcelain)" ]; then
-          git commit -m "Auto-update weather data: $(date +'%Y-%m-%d %H:%M:%S')"
+      - name: 检出仓库
+        uses: actions/checkout@v4
+ 
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+ 
+      - name: 安装依赖
+        run: |
+          pip install --upgrade pip
+          pip install selenium webdriver-manager ddddocr pillow
+ 
+      - name: 安装 Chrome
+        uses: browser-actions/setup-chrome@v1
+ 
+      - name: 运行抓取脚本
+        run: python wind.py
+ 
+      - name: 归档当日数据
+        if: success()
+        run: |
+          mkdir -p archive
+          # 用北京时间给归档文件命名
+          BJ_DATE=$(date -u -d '+8 hours' +%Y%m%d)
+          cp sz_wind_data_updated.csv "archive/sz_wind_${BJ_DATE}.csv"
+ 
+      - name: 提交结果
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add sz_wind_data_updated.csv weather_mapping.json archive/
+          git diff --cached --quiet && echo "无变化，跳过提交" || git commit -m "自动更新: $(date -u -d '+8 hours' '+%Y-%m-%d %H:%M') 数据"
           git push
-        else
-          echo "No changes in data, skipping push."
-        fi
