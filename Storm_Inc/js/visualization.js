@@ -1228,9 +1228,20 @@ export function drawFinalPath(mapSvg, mapProjection, cyclone, world, tooltip, si
         const movementEl = document.getElementById('map-info-movement');
 
         if (infoBox && timeEl && intensityEl && movementEl) {
-            timeEl.textContent = finalStats.number; 
+            timeEl.textContent = finalStats.number;
             intensityEl.textContent = `${finalStats.peakWind}kt / ${finalStats.minPressure}hPa`;
-            movementEl.textContent = `ACE: ${finalStats.ace}`;
+            let movementText = `ACE: ${finalStats.ace}`;
+            if (finalStats.deaths !== undefined) {
+                movementText += ` | Deaths: ${finalStats.deaths.toLocaleString()}`;
+            }
+            if (finalStats.damage !== undefined) {
+                if (finalStats.damage >= 1000) {
+                    movementText += ` | Damage: $${(finalStats.damage / 1000).toFixed(1)}B`;
+                } else {
+                    movementText += ` | Damage: $${finalStats.damage.toFixed(0)}M`;
+                }
+            }
+            movementEl.textContent = movementText;
             infoBox.classList.remove('hidden');
         }
     } else {

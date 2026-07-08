@@ -789,6 +789,110 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.restore();
     }
     // --- UI更新函数 ---
+    // [新增] 警告和观察系统
+    function updateWarningPanel() {
+        const warningPanel = document.getElementById('warning-panel');
+        const warningList = document.getElementById('warning-list');
+        if (!warningPanel || !warningList || !state.cyclone || state.cyclone.status !== 'active') {
+            if (warningPanel) warningPanel.classList.add('hidden');
+            return;
+        }
+
+        const cyclone = state.cyclone;
+        const warnings = [];
+        
+        // 基于气旋强度和位置生成警告
+        if (cyclone.intensity >= 137) {
+            warnings.push({
+                type: 'warning',
+                level: 'extreme',
+                title: 'EXTREME WARNING',
+                message: `Cat 5 conditions expected within 24 hours`,
+                icon: 'fa-skull-crossbones',
+                color: 'text-purple-400'
+            });
+        } else if (cyclone.intensity >= 96) {
+            warnings.push({
+                type: 'warning',
+                level: 'major',
+                title: 'MAJOR HURRICANE WARNING',
+                message: `Cat 3-4 conditions expected within 24 hours`,
+                icon: 'fa-triangle-exclamation',
+                color: 'text-red-400'
+            });
+        } else if (cyclone.intensity >= 64) {
+            warnings.push({
+                type: 'warning',
+                level: 'moderate',
+                title: 'HURRICANE WARNING',
+                message: `Cat 1-2 conditions expected within 24 hours`,
+                icon: 'fa-exclamation-circle',
+                color: 'text-orange-400'
+            });
+        } else if (cyclone.intensity >= 34) {
+            warnings.push({
+                type: 'watch',
+                level: 'moderate',
+                title: 'TROPICAL STORM WATCH',
+                message: `TS conditions possible within 48 hours`,
+                icon: 'fa-eye',
+                color: 'text-yellow-400'
+            });
+        }
+
+        // 检查是否接近陆地
+        if (cyclone.isLand || cyclone.isNearLand) {
+            warnings.push({
+                type: 'warning',
+                level: 'land',
+                title: 'LAND INTERACTION',
+                message: `Storm is over/near land. Weakening expected.`,
+                icon: 'fa-mountain',
+                color: 'text-amber-400'
+            });
+        }
+
+        // 检查站点是否在影响范围内
+        if (state.siteLon != null && state.siteLat != null) {
+            const dist = calculateDistance(cyclone.lat, cyclone.lon, state.siteLat, state.siteLon);
+            if (dist <= 200 && cyclone.intensity >= 64) {
+                warnings.push({
+                    type: 'warning',
+                    level: 'critical',
+                    title: 'CRITICAL ALERT',
+                    message: `Direct impact expected at ${state.siteName || 'observation post'}`,
+                    icon: 'fa-house-crack',
+                    color: 'text-red-500'
+                });
+            } else if (dist <= 400 && cyclone.intensity >= 34) {
+                warnings.push({
+                    type: 'watch',
+                    level: 'moderate',
+                    title: 'STORM WATCH',
+                    message: `Storm within 400km of ${state.siteName || 'observation post'}`,
+                    icon: 'fa-binoculars',
+                    color: 'text-yellow-400'
+                });
+            }
+        }
+
+        // 更新UI
+        if (warnings.length > 0) {
+            warningPanel.classList.remove('hidden');
+            warningList.innerHTML = warnings.map(w => `
+                <div class="flex items-start gap-2 p-2 bg-white/5 border-l-2 ${w.level === 'extreme' ? 'border-purple-500' : w.level === 'critical' ? 'border-red-500' : w.level === 'major' ? 'border-red-400' : 'border-yellow-500'} rounded">
+                    <i class="fa-solid ${w.icon} ${w.color} mt-0.5"></i>
+                    <div class="flex-1">
+                        <div class="text-[10px] font-bold ${w.color} uppercase tracking-wider">${w.title}</div>
+                        <div class="text-[9px] text-slate-400 mt-0.5">${w.message}</div>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            warningPanel.classList.add('hidden');
+        }
+    }
+
     // [新增] 显示突发新闻 Banner
     function triggerNewsBanner(headlineHTML, subText, currentAge, currentMonth, type = 'ORANGE') {
         const container = document.getElementById('news-feed-container');
@@ -873,19 +977,34 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 6000);
     }
 
-    function updateInfoPanel() {
-        const cat = getCategory(state.cyclone.intensity, state.cyclone.isTransitioning, state.cyclone.isExtratropical, state.cyclone.isSubtropical);
-        document.getElementById('simulationTime').textContent = `SIM T+${state.cyclone.age} 小时`;
-        document.getElementById('latitude').textContent = `${state.cyclone.lat.toFixed(1)}°N`;
-        document.getElementById('longitude').textContent = `${state.cyclone.lon.toFixed(1)}°E`;
-        document.getElementById('intensity').textContent = `${knotsToKph(state.cyclone.intensity)} kph (${knotsToMph(state.cyclone.intensity)} mph)`;
-        const centerEnvP = getPressureAt(state.cyclone.lon, state.cyclone.lat, state.pressureSystems);
-        const centralPressure = windToPressure(state.cyclone.intensity, state.cyclone.circulationSize, state.cyclone.basin, centerEnvP);
-        document.getElementById('pressure').textContent = `${centralPressure.toFixed(0)} hPa`;
-        document.getElementById('category').textContent = cat.name;
-        document.getElementById('ace').textContent = state.cyclone.ace.toFixed(2);
-        document.getElementById('direction').textContent = `${directionToCompass(state.cyclone.direction)}`;
-        document.getElementById('speed').textContent = `${state.cyclone.speed.toFixed(0)} kts`;
+function updateInfoPanel() {
+    const cat = getCategory(state.cyclone.intensity, state.cyclone.isTransitioning, state.cyclone.isExtratropical, state.cyclone.isSubtropical);
+    document.getElementById('simulationTime').textContent = `SIM T+${state.cyclone.age} 小时`;
+    document.getElementById('latitude').textContent = `${state.cyclone.lat.toFixed(1)}°N`;
+    document.getElementById('longitude').textContent = `${state.cyclone.lon.toFixed(1)}°E`;
+    document.getElementById('intensity').textContent = `${knotsToKph(state.cyclone.intensity)} kph (${knotsToMph(state.cyclone.intensity)} mph)`;
+    const centerEnvP = getPressureAt(state.cyclone.lon, state.cyclone.lat, state.pressureSystems);
+    const centralPressure = windToPressure(state.cyclone.intensity, state.cyclone.circulationSize, state.cyclone.basin, centerEnvP);
+    document.getElementById('pressure').textContent = `${centralPressure.toFixed(0)} hPa`;
+    document.getElementById('category').textContent = cat.name;
+    document.getElementById('ace').textContent = state.cyclone.ace.toFixed(2);
+    document.getElementById('direction').textContent = `${directionToCompass(state.cyclone.direction)}`;
+    document.getElementById('speed').textContent = `${state.cyclone.speed.toFixed(0)} kts`;
+    // [新增] 更新死亡和损失计数器
+    const deathsEl = document.getElementById('deaths');
+    const damageEl = document.getElementById('damage');
+    if (deathsEl) {
+        const deaths = state.cyclone.deaths || 0;
+        deathsEl.textContent = deaths.toLocaleString();
+    }
+    if (damageEl) {
+        const damage = state.cyclone.damage || 0;
+        if (damage >= 1000) {
+            damageEl.textContent = `$${(damage / 1000).toFixed(1)}B`;
+        } else {
+            damageEl.textContent = `$${damage.toFixed(0)}M`;
+        }
+    }
         const isLand = state.cyclone.isLand || false;
         const currentSST = getSST(state.cyclone.lat, state.cyclone.lon, state.currentMonth, state.GlobalTemp);
         const basin = basinSelector.value || 'WPAC'; // 默认西太
@@ -1215,7 +1334,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 number: `${basinCode} ${cycloneNumStr}`,
                 peakWind: Math.round(peakWind),
                 minPressure: Math.round(minPressure),
-                ace: state.cyclone.ace.toFixed(2)
+                ace: state.cyclone.ace.toFixed(2),
+                deaths: state.cyclone.deaths || 0,
+                damage: state.cyclone.damage || 0
             };
             state.lastFinalStats = finalStats;
 
@@ -1357,9 +1478,10 @@ const cycloneNum = String(state.simulationCount).padStart(2, '0');
             }
         }
 
-        updateInfoPanel();
-        updateMapInfoBox();
-        updateStateSiteData();
+updateInfoPanel();
+updateMapInfoBox();
+updateStateSiteData();
+updateWarningPanel();
 
         // 存入历史 (保持原有逻辑，因为这里是随时间推进的)
         if (state.currentSiteData) {
@@ -1442,11 +1564,12 @@ const cycloneNum = String(state.simulationCount).padStart(2, '0');
         if (newsContainer) {
             newsContainer.innerHTML = ''; // 直接清空所有子元素
         }
-        forecastContainer.classList.add('hidden');
-        document.getElementById('map-info-box').classList.remove('hidden');
-        bestTrackContainer.classList.add('hidden');
-        
-        // [UI修复] 使用 innerHTML 设置带图标的按钮，保持风格一致
+forecastContainer.classList.add('hidden');
+document.getElementById('map-info-box').classList.remove('hidden');
+bestTrackContainer.classList.add('hidden');
+document.getElementById('warning-panel').classList.add('hidden');
+
+// [UI修复] 使用 innerHTML 设置带图标的按钮，保持风格一致
         generateButton.innerHTML = '<span class="relative z-10 flex items-center justify-center gap-2"><i class="fa-solid fa-power-off"></i> RESTART</span>';
         pauseButton.disabled = false;
         // [UI修复] 设置为暂停图标

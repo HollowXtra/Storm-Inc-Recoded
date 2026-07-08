@@ -536,7 +536,7 @@ export function updateFrontalZone(pressureSystemsObj, month) {
     return { latitude: avgLat + 8 * Math.cos((month - 8) * (Math.PI / 6)) + 3 * Math.random() - 11 };
 }
 
-export function calculateSteering(lon, lat, pressureSystemsObj, bias = { u: 0, v: 0 }) {
+export function calculateSteering(lon, lat, pressureSystemsObj, bias = { u: 0, v: 0 }, cycloneIntensity = 0) {
     const windUpper = calculateLayerWind(lon, lat, pressureSystemsObj.upper);
     const windLower = calculateLayerWind(lon, lat, pressureSystemsObj.lower);
 
@@ -547,21 +547,54 @@ export function calculateSteering(lon, lat, pressureSystemsObj, bias = { u: 0, v
     const steerU = 0.7*(windUpper.u * weightUpper + windLower.u * weightLower) + bias.u;
     const steerV = 0.7*(windUpper.v * weightUpper + windLower.v * weightLower) + bias.v;
 
-    // Beta Drift
+    // Beta Drift - more realistic with latitude-dependent factor
     const latRad = lat * (Math.PI / 180);
+    const absLat = Math.abs(lat);
     const betaFactor = Math.sin(latRad < 0 ? 1.2*latRad - (Math.PI/12) : 1.2*latRad + (Math.PI/12));
-    const betaU = -0.6 * betaFactor; 
-    const betaV = 4.4 * betaFactor;
+    // Stronger storms have more beta drift due to larger circulation
+    const intensityBetaFactor = Math.min(2.0, 1.0 + (cycloneIntensity / 137) * 0.8);
+    const betaU = -0.6 * betaFactor * intensityBetaFactor;
+    const betaV = 4.4 * betaFactor * intensityBetaFactor;
 
     // Shear Vector
     const shearU = windUpper.u - windLower.u;
     const shearV = windUpper.v - windLower.v;
 
-    return { 
-        steerU: steerU + betaU, 
+    return {
+        steerU: steerU + betaU,
         steerV: steerV + betaV,
         shearU,
         shearV
+    };
+}
+
+// [新增] 计算死亡和损失估算
+export function calculateImpactDamage(lon, lat, intensity, isOverLand, circulationSize) {
+    if (!isOverLand || intensity < 34) return { deaths: 0, damage: 0 };
+    
+    // 基于历史数据的简化模型
+    // 风速越大，影响范围越广
+    const windRadiusKm = circulationSize * 0.15; // 风圈半径（公里）
+    
+    // 人口密度估算（简化：基于经纬度的伪随机，实际应使用真实人口数据）
+    const populationDensity = 100 + Math.abs(Math.sin(lon * 0.1) * Math.cos(lat * 0.1)) * 500;
+    
+    // 死亡人数估算（基于风速和人口密度）
+    // 使用指数模型：风速越大，死亡人数呈指数增长
+    const intensityFactor = Math.pow(intensity / 100, 2.5);
+    const radiusFactor = Math.pow(windRadiusKm / 100, 1.5);
+    const estimatedDeaths = Math.round(populationDensity * intensityFactor * radiusFactor * 0.01);
+    
+    // 经济损失估算（单位：百万美元）
+    // 基于风速、影响范围和人口密度
+    const damageBase = intensity * 2.5; // 基础 damage
+    const damageRadius = Math.pow(windRadiusKm / 50, 2) * 50;
+    const damagePopulation = populationDensity * 0.5;
+    const estimatedDamage = Math.round((damageBase + damageRadius + damagePopulation) * (1 + intensity / 200));
+    
+    return {
+        deaths: Math.max(0, estimatedDeaths),
+        damage: Math.max(0, estimatedDamage)
     };
 }
 
@@ -580,8 +613,8 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
     }
 
     // --- Steering ---
-    const { steerU, steerV, shearU, shearV } = calculateSteering(updatedCyclone.lon, updatedCyclone.lat, pressureSystems);
-    const physicalShear = Math.hypot(shearU, shearV) * 2.0; 
+    const { steerU, steerV, shearU, shearV } = calculateSteering(updatedCyclone.lon, updatedCyclone.lat, pressureSystems, { u: 0, v: 0 }, updatedCyclone.intensity);
+    const physicalShear = Math.hypot(shearU, shearV) * 2.0;
     
     // Wind Shear
     let totalShear = physicalShear * (globalShearSetting / 100.0);
@@ -601,15 +634,25 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
         updatedCyclone.shearEventMagnitude = -3 + Math.random() * 6 + 1.8 * Math.abs(month - 8) ** 0.5 + Math.max(0,(globalShearSetting / 10 - 10));
     }
 
-    // Movement
+    // Movement - 更真实的物理模型
     let steeringDirection = (Math.atan2(steerU, steerV) * 180 / Math.PI + 360) % 360;
     let angleDiff = steeringDirection - updatedCyclone.direction;
     while (angleDiff < -180) angleDiff += 360;
     while (angleDiff > 180) angleDiff -= 360;
-    updatedCyclone.direction = (updatedCyclone.direction + angleDiff * 0.25 + 360) % 360;
+    
+    // 更平滑的方向变化（模拟真实气旋的惯性）
+    const directionSmoothing = 0.15 + Math.max(0, updatedCyclone.lat / 200); // 高纬度地区转向更慢
+    updatedCyclone.direction = (updatedCyclone.direction + angleDiff * directionSmoothing + 360) % 360;
 
-    const steeringSpeedKnots = Math.hypot(steerU, steerV) * 1.94384; 
-    updatedCyclone.speed += (steeringSpeedKnots - updatedCyclone.speed) * (0.3 + Math.max(0, updatedCyclone.lat / 100));
+    const steeringSpeedKnots = Math.hypot(steerU, steerV) * 1.94384;
+    // 速度响应更真实：强气旋移动更快，但有惯性
+    const speedResponseRate = 0.2 + Math.max(0, updatedCyclone.lat / 150);
+    updatedCyclone.speed += (steeringSpeedKnots - updatedCyclone.speed) * speedResponseRate;
+    
+    // 陆地摩擦减速效果
+    if (updatedCyclone.isLand) {
+        updatedCyclone.speed *= 0.95; // 陆地上减速
+    }
 
     // Cold welling
     if (updatedCyclone.speed < 6) {
@@ -851,8 +894,14 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
 
     let newLat = updatedCyclone.lat + distanceDeg * Math.sin(angleRad);
     let newLon = updatedCyclone.lon + distanceDeg * Math.cos(angleRad) / Math.cos(updatedCyclone.lat * Math.PI / 180);
-    updatedCyclone.lon = normalizeLongitude(newLon); 
+    updatedCyclone.lon = normalizeLongitude(newLon);
     updatedCyclone.lat = newLat;
+    
+    // [新增] 计算死亡和损失
+    const impact = calculateImpactDamage(updatedCyclone.lon, updatedCyclone.lat, updatedCyclone.intensity, isOverLand, updatedCyclone.circulationSize);
+    updatedCyclone.deaths = (updatedCyclone.deaths || 0) + impact.deaths;
+    updatedCyclone.damage = (updatedCyclone.damage || 0) + impact.damage;
+    
     updatedCyclone.track.push([updatedCyclone.lon, updatedCyclone.lat, updatedCyclone.intensity, updatedCyclone.isTransitioning, updatedCyclone.isExtratropical, updatedCyclone.circulationSize, updatedCyclone.isSubtropical, radii34, radii50, radii64, Math.round(currentCentralPressure)]);
 
     if (updatedCyclone.intensity < 17 || (updatedCyclone.isExtratropical && updatedCyclone.intensity < 24) || updatedCyclone.lat > 70 || updatedCyclone.lat < -70) {
