@@ -302,7 +302,7 @@ world: null,
 
     function getInvestFormationChance(cyclone, period = '48h') {
         const storedChance = period === '48h' ? cyclone?.investChance48h : cyclone?.investChance7d;
-        if (Number.isFinite(Number(storedChance))) return Math.max(0, Math.min(100, Math.round(Number(storedChance))));
+        if (Number.isFinite(Number(storedChance))) return Math.round(Math.max(0, Math.min(100, Number(storedChance))) / 10) * 10;
         const potential = Math.max(0, Math.min(1, Number(cyclone?.investPotential) || 0));
         const chance48h = Math.round(Math.max(0, Math.min(80, potential * 80)) / 10) * 10;
         return period === '48h'

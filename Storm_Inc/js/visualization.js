@@ -911,11 +911,13 @@ function normalizeInvestLongitude(lon) {
 
 function getInvestChancePair(cyclone) {
     const potential = Math.max(0, Math.min(1, Number(cyclone?.investPotential) || 0));
-    const chance48h = Number.isFinite(Number(cyclone?.investChance48h))
-        ? Number(cyclone.investChance48h)
+    const storedChance48h = Number(cyclone?.investChance48h);
+    const storedChance7d = Number(cyclone?.investChance7d);
+    const chance48h = Number.isFinite(storedChance48h)
+        ? Math.round(Math.max(0, Math.min(100, storedChance48h)) / 10) * 10
         : Math.round(Math.max(0, Math.min(80, potential * 80)) / 10) * 10;
-    const chance7d = Number.isFinite(Number(cyclone?.investChance7d))
-        ? Number(cyclone.investChance7d)
+    const chance7d = Number.isFinite(storedChance7d)
+        ? Math.max(chance48h, Math.round(Math.max(0, Math.min(100, storedChance7d)) / 10) * 10)
         : Math.round(Math.max(chance48h, Math.min(90, potential * 100 + 10)) / 10) * 10;
     return { chance48h, chance7d };
 }
@@ -2252,8 +2254,7 @@ export function renderJTWCStyle(cyclone, timeIndex, worldData) {
     const currentPoint = pastTrack[timeIndex]; // 更新为解包后的当前点
     const isInvest = currentPoint[11] ?? cyclone.isInvest;
     const investName = cyclone.investDesignation || 'INVEST';
-    const investChance48h = Number.isFinite(Number(cyclone.investChance48h)) ? Number(cyclone.investChance48h) : Math.round(Math.max(0, Math.min(80, (Number(cyclone.investPotential) || 0) * 80)) / 5) * 5;
-    const investChance7d = Number.isFinite(Number(cyclone.investChance7d)) ? Number(cyclone.investChance7d) : Math.round(Math.max(investChance48h, Math.min(90, (Number(cyclone.investPotential) || 0) * 100 + 10)) / 5) * 5;
+    const { chance48h: investChance48h, chance7d: investChance7d } = getInvestChancePair(cyclone);
 
     // B. 获取预测数据并解包
     const currentAge = timeIndex * 3; 
