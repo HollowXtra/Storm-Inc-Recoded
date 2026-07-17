@@ -2,6 +2,19 @@
  * utils.js
  * 包含所有通用的、无状态的辅助函数。
  */
+
+// 转义用户可控文本，防止其被作为 HTML 注入（XSS）。
+// 用于任何需要把用户输入插入到 innerHTML 模板字符串中的地方。
+export function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 export const NAME_LISTS = {
     'WPAC': [
         'Damrey', 'Haikui', 'Kirogi', 'Yun-yeung', 'Koinu', 'Bolaven', 'Sanba', 'Jelawat', 'Ewiniar', 'Maliksi', 'Gaemi', 'Prapiroon', 'Maria', 'Son-Tinh',
