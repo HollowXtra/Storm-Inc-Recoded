@@ -641,12 +641,13 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
     while (angleDiff > 180) angleDiff -= 360;
     
     // 更平滑的方向变化（模拟真实气旋的惯性）
-    const directionSmoothing = 0.15 + Math.max(0, updatedCyclone.lat / 200); // 高纬度地区转向更慢
+    // 纬度越高，转向响应越快（副热带急流引导下气旋加速转向），两半球对称
+    const directionSmoothing = 0.15 + Math.abs(updatedCyclone.lat) / 200;
     updatedCyclone.direction = (updatedCyclone.direction + angleDiff * directionSmoothing + 360) % 360;
 
     const steeringSpeedKnots = Math.hypot(steerU, steerV) * 1.94384;
-    // 速度响应更真实：强气旋移动更快，但有惯性
-    const speedResponseRate = 0.2 + Math.max(0, updatedCyclone.lat / 150);
+    // 速度响应更真实：纬度越高移动越快，但有惯性（两半球对称）
+    const speedResponseRate = 0.2 + Math.abs(updatedCyclone.lat) / 150;
     updatedCyclone.speed += (steeringSpeedKnots - updatedCyclone.speed) * speedResponseRate;
     
     // 陆地摩擦减速效果
@@ -677,6 +678,7 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
     const isNearLand = landStatus.isNearLand;
 
     updatedCyclone.isLand = isOverLand;
+    updatedCyclone.isNearLand = isNearLand;
     const EXf = !updatedCyclone.isExtratropical ? 1 : 0.1;
 
     // --- Intensity Change (Strictly Preserved Coefficients) ---
