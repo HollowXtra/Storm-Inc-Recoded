@@ -2,7 +2,7 @@
  * cyclone-model.js
  * Core logic
  */
-import { NAME_LISTS, getSST, getPressureAt, normalizeLongitude, calculateDistance, windToPressure } from './utils.js';
+import { getSST, getPressureAt, normalizeLongitude, calculateDistance, windToPressure, getNextStormNameMeta } from './utils.js';
 import { getElevationAt, getLandStatus } from './terrain-data.js';
 import { calculateBackgroundHumidity } from './visualization.js';
 
@@ -119,7 +119,7 @@ export function getWindVectorAt(lon, lat, month, cyclone, pressureSystems) {
     };
 }
 
-export function initializeCyclone(world, month, basin = 'WPAC', globalTemp, globalShear, customLon = null, customLat = null) {
+export function initializeCyclone(world, month, basin = 'WPAC', globalTemp, globalShear, customLon = null, customLat = null, seasonYear = new Date().getFullYear()) {
     let lat, lon, isOverLand;
 
     let useCustomCoords = (customLon !== null && customLat !== null);
@@ -189,6 +189,11 @@ export function initializeCyclone(world, month, basin = 'WPAC', globalTemp, glob
         direction: Math.random() * 360,
         speed: 10 + Math.random() * 5,
         basin: basin,
+        seasonYear: seasonYear,
+        name: null,
+        nameLetter: null,
+        nameIndex: null,
+        named: false,
         age: 0,
         shearEventActive: false,
         shearEventEndTime: 0,
@@ -211,6 +216,20 @@ export function initializeCyclone(world, month, basin = 'WPAC', globalTemp, glob
         ercEndTime: 0,
         ercMpiReduction: 0,
         ercSizeFactor: 1.0,
+        eyewallReplacementActive: false,
+        eyewallReplacementPhase: 'none',
+        eyewallReplacementCount: 0,
+        eyewallReplacementStartAge: null,
+        lastEyewallReplacementAge: null,
+        hazardEvents: [],
+        tornadoReports: [],
+        tornadoesReported: 0,
+        tornadoRisk: 0,
+        tornadoCooldownUntil: 0,
+        stormSurge: 0,
+        peakStormSurge: 0,
+        retirementStatus: 'not-reviewed',
+        retirementReason: '',
         circulationSize: 150 + Math.random() * 350,
         r34: 0, r50: 0, r64: 0,
         forecastLogs: {},
@@ -601,6 +620,8 @@ export function calculateImpactDamage(lon, lat, intensity, isOverLand, circulati
 export function updateCycloneState(cyclone, pressureSystems, frontalZone, world, month, globalTemp, globalShearSetting, nameIndex) {
     let updatedCyclone = { ...cyclone };
     updatedCyclone.age += 3;
+    if (!Array.isArray(updatedCyclone.hazardEvents)) updatedCyclone.hazardEvents = [];
+    if (!Array.isArray(updatedCyclone.tornadoReports)) updatedCyclone.tornadoReports = [];
 
     // --- ACE Calculation ---
     if (updatedCyclone.age % 6 === 0 && updatedCyclone.intensity >= 34 && !updatedCyclone.isExtratropical) {
@@ -672,7 +693,7 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
     
     const oldIntensity = updatedCyclone.intensity;
     const terrainElevation = getElevationAt(updatedCyclone.lon, updatedCyclone.lat);
-    const landStatus = getLandStatus(updatedCyclone.lon, updatedCyclone.lat, 0.2);
+    const landStatus = getLandStatus(updatedCyclone.lon, updatedCyclone.lat, 1.5);
     const isOverLand = landStatus.isLand;
     const isNearLand = landStatus.isNearLand;
 
@@ -726,22 +747,50 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
                 updatedCyclone.circulationSize *= 1.015; 
                 if (updatedCyclone.age >= updatedCyclone.ercEndTime) {
                     updatedCyclone.ercState = 'recovering';
+                    updatedCyclone.eyewallReplacementPhase = 'rebuilding';
                     const recoveryDuration = 2 + Math.floor(Math.random() * 8);
                     updatedCyclone.ercEndTime = updatedCyclone.age + recoveryDuration * 3;
+                    updatedCyclone.hazardEvents.push({
+                        type: 'eyewall-replacement',
+                        phase: 'inner-core-rebuilding',
+                        age: updatedCyclone.age,
+                        message: 'Inner eyewall has weakened; the outer eyewall is consolidating.'
+                    });
                 }
                 break;
             case 'recovering':
                 updatedCyclone.circulationSize *= 0.995;
                 if (updatedCyclone.age >= updatedCyclone.ercEndTime) {
                     updatedCyclone.ercState = 'none';
+                    updatedCyclone.isERCActive = false;
+                    updatedCyclone.eyewallReplacementActive = false;
+                    updatedCyclone.eyewallReplacementPhase = 'complete';
+                    updatedCyclone.lastEyewallReplacementAge = updatedCyclone.age;
                     updatedCyclone.ercMpiReduction = 0;
+                    updatedCyclone.hazardEvents.push({
+                        type: 'eyewall-replacement',
+                        phase: 'complete',
+                        age: updatedCyclone.age,
+                        message: 'Eyewall replacement complete; the wind field is reorganizing.'
+                    });
                 }
                 break;
             default:
                 if (updatedCyclone.intensity > 96 && !isOverLand && !updatedCyclone.isTransitioning && Math.random() < 0.12) {
                     updatedCyclone.ercState = 'weakening';
+                    updatedCyclone.isERCActive = true;
+                    updatedCyclone.eyewallReplacementActive = true;
+                    updatedCyclone.eyewallReplacementPhase = 'contracting';
+                    updatedCyclone.eyewallReplacementCount = (updatedCyclone.eyewallReplacementCount || 0) + 1;
+                    updatedCyclone.eyewallReplacementStartAge = updatedCyclone.age;
                     const weakeningDuration = 4 + Math.floor(Math.random() * 10);
                     updatedCyclone.ercEndTime = updatedCyclone.age + weakeningDuration * 3;
+                    updatedCyclone.hazardEvents.push({
+                        type: 'eyewall-replacement',
+                        phase: 'started',
+                        age: updatedCyclone.age,
+                        message: `Eyewall replacement cycle ${updatedCyclone.eyewallReplacementCount} has begun.`
+                    });
                 }
                 break;
         }
@@ -892,6 +941,55 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
     const radii50 = getQuadrantMax(50);
     const radii64 = getQuadrantMax(64);
 
+    // Coastal hazards: surge is driven by wind stress, pressure deficit, forward
+    // motion, and whether the circulation is close enough to land to pile water up.
+    const coastalFactor = isNearLand ? 1.25 : (isOverLand ? 0.45 : 0.15);
+    const pressureDeficit = Math.max(0, currentEnvPressure - currentCentralPressure);
+    const surgeMeters = Math.max(0, Math.min(12,
+        (pressureDeficit * 0.018 + Math.max(0, updatedCyclone.intensity - 34) * 0.018 + updatedCyclone.speed * 0.025) * coastalFactor
+    ));
+    updatedCyclone.stormSurge = Number(surgeMeters.toFixed(1));
+    updatedCyclone.peakStormSurge = Math.max(updatedCyclone.peakStormSurge || 0, updatedCyclone.stormSurge);
+    if (updatedCyclone.stormSurge >= 1.0) {
+        const lastSurgeEvent = updatedCyclone.hazardEvents.find(event => event.type === 'storm-surge' && event.age === updatedCyclone.age);
+        if (!lastSurgeEvent) {
+            updatedCyclone.hazardEvents.push({
+                type: 'storm-surge',
+                age: updatedCyclone.age,
+                value: updatedCyclone.stormSurge,
+                message: `${updatedCyclone.stormSurge.toFixed(1)} m coastal storm-surge potential.`
+            });
+        }
+    }
+
+    // Tornado reports are generated when a strong, sheared circulation is over
+    // or close to land. A cooldown prevents every three-hour model step from
+    // becoming a report while still allowing multiple reports in one storm.
+    const tornadoRisk = Math.max(0, Math.min(1,
+        Math.max(0, updatedCyclone.intensity - 45) / 100 * 0.55 + totalShear / 90 * 0.3 + (isNearLand ? 0.2 : 0)
+    ));
+    updatedCyclone.tornadoRisk = Number(tornadoRisk.toFixed(2));
+    if ((isOverLand || isNearLand) && tornadoRisk >= 0.28 && updatedCyclone.age >= (updatedCyclone.tornadoCooldownUntil || 0) && Math.random() < tornadoRisk * 0.55) {
+        const reportCount = 1 + Math.floor(Math.random() * Math.max(1, Math.min(4, Math.round(tornadoRisk * 5))));
+        const report = {
+            age: updatedCyclone.age,
+            count: reportCount,
+            efRating: `EF${Math.min(3, Math.max(0, Math.floor((updatedCyclone.intensity - 45) / 35)))}`,
+            lat: updatedCyclone.lat,
+            lon: updatedCyclone.lon,
+            risk: updatedCyclone.tornadoRisk
+        };
+        updatedCyclone.tornadoReports.push(report);
+        updatedCyclone.tornadoesReported = (updatedCyclone.tornadoesReported || 0) + reportCount;
+        updatedCyclone.tornadoCooldownUntil = updatedCyclone.age + 6;
+        updatedCyclone.hazardEvents.push({
+            type: 'tornado-report',
+            age: updatedCyclone.age,
+            count: reportCount,
+            message: `${reportCount} tornado report${reportCount === 1 ? '' : 's'} near the circulation (${report.efRating}).`
+        });
+    }
+
     let newLat = updatedCyclone.lat + distanceDeg * Math.sin(angleRad);
     let newLon = updatedCyclone.lon + distanceDeg * Math.cos(angleRad) / Math.cos(updatedCyclone.lat * Math.PI / 180);
     updatedCyclone.lon = normalizeLongitude(newLon);
@@ -906,15 +1004,33 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
 
     if (updatedCyclone.intensity < 17 || (updatedCyclone.isExtratropical && updatedCyclone.intensity < 24) || updatedCyclone.lat > 70 || updatedCyclone.lat < -70) {
         updatedCyclone.status = 'dissipated';
+        const peakWind = updatedCyclone.track.reduce((peak, point) => Math.max(peak, point[2] || 0), updatedCyclone.intensity);
+        const retirementReasons = [];
+        if ((updatedCyclone.deaths || 0) >= 25) retirementReasons.push('fatality impact');
+        if ((updatedCyclone.damage || 0) >= 10000) retirementReasons.push('economic impact');
+        if (peakWind >= 137 && (updatedCyclone.deaths || 0) > 0) retirementReasons.push('extreme intensity and land impact');
+        if (retirementReasons.length > 0) {
+            updatedCyclone.retirementStatus = 'retirement-review';
+            updatedCyclone.retirementReason = retirementReasons.join(', ');
+            updatedCyclone.hazardEvents.push({
+                type: 'retirement-review',
+                age: updatedCyclone.age,
+                message: `Name retirement review opened: ${updatedCyclone.retirementReason}.`
+            });
+        } else {
+            updatedCyclone.retirementStatus = 'not-recommended';
+        }
     }
     
     if (!updatedCyclone.named && updatedCyclone.intensity >= 34 && !updatedCyclone.isExtratropical) {
         updatedCyclone.named = true;
         const basinKey = updatedCyclone.basin || 'WPAC';
-        const list = NAME_LISTS[basinKey] || NAME_LISTS['WPAC'];
-        const safeIndex = nameIndex % list.length;
-        updatedCyclone.name = list[safeIndex];
-        console.log(`System upgraded to Tropical Storm ${updatedCyclone.name} (${basinKey})`);
+        const meta = getNextStormNameMeta(basinKey, nameIndex, updatedCyclone.seasonYear);
+        updatedCyclone.name = meta.name;
+        updatedCyclone.nameLetter = meta.letter;
+        updatedCyclone.nameIndex = meta.index;
+        updatedCyclone.nameDesignation = meta.designation;
+        console.log(`System upgraded to Tropical Storm ${meta.letter}-${meta.name} (${meta.year}, ${basinKey})`);
     }
     
     return updatedCyclone;

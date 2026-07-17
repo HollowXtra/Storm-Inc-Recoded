@@ -834,6 +834,68 @@ function drawPressureField(container, mapProjection, pressureSystemsObj) {
         .attr("d", pathGenerator);
 }
 
+function drawHazardOverlays(container, mapProjection, cyclone) {
+    container.selectAll('*').remove();
+    if (!cyclone) return;
+
+    const reports = (cyclone.tornadoReports || []).slice(-12);
+    reports.forEach((report, index) => {
+        const point = mapProjection([report.lon, report.lat]);
+        if (!point) return;
+        const offsetX = ((index % 3) - 1) * 10;
+        const offsetY = (Math.floor(index / 3) % 3 - 1) * 10;
+        const group = container.append('g')
+            .attr('class', 'tornado-report')
+            .attr('transform', `translate(${point[0] + offsetX},${point[1] + offsetY})`)
+            .style('pointer-events', 'none');
+        group.append('path')
+            .attr('d', 'M 0 -8 L 8 7 L -8 7 Z')
+            .attr('fill', '#ef4444')
+            .attr('stroke', 'white')
+            .attr('stroke-width', 1);
+        group.append('text')
+            .attr('x', 11)
+            .attr('y', 4)
+            .style('fill', '#fecaca')
+            .style('font-size', '9px')
+            .style('font-family', 'monospace')
+            .style('font-weight', 'bold')
+            .style('paint-order', 'stroke')
+            .style('stroke', '#111827')
+            .style('stroke-width', '3px')
+            .text(`${report.count || 1} TORNADO${(report.count || 1) === 1 ? '' : 'ES'}`);
+    });
+
+    if ((cyclone.stormSurge || 0) >= 1 && isFinite(cyclone.lon) && isFinite(cyclone.lat)) {
+        const point = mapProjection([cyclone.lon, cyclone.lat]);
+        if (point) {
+            const group = container.append('g')
+                .attr('class', 'storm-surge-overlay')
+                .style('pointer-events', 'none');
+            group.append('circle')
+                .attr('cx', point[0])
+                .attr('cy', point[1])
+                .attr('r', 24 + Math.min(35, cyclone.stormSurge * 4))
+                .style('fill', 'none')
+                .style('stroke', '#38bdf8')
+                .style('stroke-width', 2)
+                .style('stroke-dasharray', '5, 4')
+                .style('opacity', 0.8);
+            group.append('text')
+                .attr('x', point[0] + 28)
+                .attr('y', point[1] - 12)
+                .style('fill', '#7dd3fc')
+                .style('font-size', '9px')
+                .style('font-family', 'monospace')
+                .style('font-weight', 'bold')
+                .style('paint-order', 'stroke')
+                .style('stroke', '#111827')
+                .style('stroke-width', '3px')
+                .text(`SURGE ${cyclone.stormSurge.toFixed(1)}M`);
+        }
+    }
+}
+
 export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
     if (!world || !mapSvg) return;
 
@@ -866,6 +928,7 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
         "layer-track-lines",  // 历史路径线
         "layer-track-points", // 历史路径点
         "layer-wind-radii",   // 风圈
+        "layer-hazards",      // 龙卷风报告与风暴潮
         "layer-cyclone",      // 当前气旋图标
         "layer-pressure-handles",   // 压力系统控制手柄层
         "track-interaction-layer",
@@ -885,6 +948,7 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
     const trackLineLayer = mapSvg.select(".layer-track-lines");
     const trackPointLayer = mapSvg.select(".layer-track-points");
     const windRadiiLayer = mapSvg.select(".layer-wind-radii");
+    const hazardsLayer = mapSvg.select(".layer-hazards");
     const cycloneLayer = mapSvg.select(".layer-cyclone");
     const uiLayer = mapSvg.select(".layer-ui");
     const pressureHandlesLayer = mapSvg.select(".layer-pressure-handles");
@@ -950,6 +1014,9 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
     if (showWindRadii && cyclone && cyclone.status === 'active') {
         drawWindRadii(windRadiiLayer, pathGenerator, cyclone, pressureSystems, isPaused);
     }
+
+    // 6.5. Severe-weather hazard overlays
+    drawHazardOverlays(hazardsLayer, mapProjection, cyclone);
 
     // 7. 预测路径 (Forecast)
     forecastLayer.selectAll("*").remove();
@@ -1146,6 +1213,21 @@ function drawSiteMarker(container, projection, name, lon, lat, data, history, on
             .style("color", windColor)
             .style("text-shadow", "0 0 2px black, 0 0 4px black") 
             .html(data.label);
+
+        if ((data.stormSurge || 0) >= 0.5) {
+            container.append("text")
+                .attr("x", siteX)
+                .attr("y", siteY - 30)
+                .style("fill", "#7dd3fc")
+                .style("font-size", "9px")
+                .style("font-family", "Monospace")
+                .style("font-weight", "bold")
+                .style("text-anchor", "middle")
+                .style("paint-order", "stroke")
+                .style("stroke", "#111827")
+                .style("stroke-width", "3px")
+                .text(`SURGE ${data.stormSurge.toFixed(1)}M`);
+        }
     }
 
     // [已删除] 旧的气压显示逻辑
@@ -1241,6 +1323,10 @@ export function drawFinalPath(mapSvg, mapProjection, cyclone, world, tooltip, si
                     movementText += ` | Damage: $${finalStats.damage.toFixed(0)}M`;
                 }
             }
+            if (finalStats.stormSurge !== undefined) movementText += ` | Surge: ${Number(finalStats.stormSurge).toFixed(1)}m`;
+            if (finalStats.tornadoes !== undefined) movementText += ` | Tornadoes: ${finalStats.tornadoes}`;
+            if (finalStats.eyewallReplacements !== undefined) movementText += ` | ERC: ${finalStats.eyewallReplacements}`;
+            if (finalStats.retirementStatus === 'retirement-review') movementText += ' | Retirement review';
             movementEl.textContent = movementText;
             infoBox.classList.remove('hidden');
         }

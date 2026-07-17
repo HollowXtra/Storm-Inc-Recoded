@@ -4,7 +4,7 @@
  */
 
 // 从各模块导入函数
-import { getCategory, knotsToKph, knotsToMph, windToPressure, directionToCompass, getSST, calculateDistance, NAME_LISTS, getPressureAt } from './utils.js';
+import { getCategory, knotsToKph, knotsToMph, windToPressure, directionToCompass, getSST, calculateDistance, getPressureAt, RETIRED_STORM_NAMES } from './utils.js';
 import { RadarRenderer, calculateRadarDbz, getShaderWindVector } from './radar-system.js';
 import { DopplerRenderer } from './radar-doppler.js';
 // [新增] 导入卫星云图模块
@@ -39,6 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const irBwCheckbox = document.getElementById('irBwCheckbox');
     const basinSelector = document.getElementById('basinSelector');
     const monthSelector = document.getElementById('monthSelector');
+    const yearSelector = document.getElementById('yearSelector');
     const leftContent = document.getElementById('left-hud-content');
     let selectedHistoryPointIndex = -1; // 记录当前选中的历史点
     const generateJTWCButton = document.getElementById('generateJTWCButton');
@@ -216,9 +217,10 @@ document.addEventListener('DOMContentLoaded', () => {
         pressureSystems: { upper: [], lower: [] },
         pressureHistory: [],
         frontalZone: {},
-        pathForecasts: [],
-        currentMonth: 7,
-        world: null,
+pathForecasts: [],
+currentMonth: 7,
+seasonYear: yearSelector ? parseInt(yearSelector.value, 10) : new Date().getFullYear(),
+world: null,
         showPressureField: false,
         showHumidityField: false,
         showPathForecast: false,
@@ -237,6 +239,8 @@ document.addEventListener('DOMContentLoaded', () => {
         history: [],
         simulationCount: 1,
         nextNameIndex: 0,
+        lastBasin: null,
+        lastSeasonYear: null,
         selectedHistoryTrackData: '',
         lastFinalStats: null,
         currentSiteData: null,
@@ -275,6 +279,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (knots < 113) return `${term} (CAT 3)`;
     
         return `SUPER ${term} (CAT ${knots < 137 ? '4' : '5'})`;
+    }
+
+    function getStormDisplayName(cyclone, fallbackNumber = '01') {
+        if (!cyclone) return `TD ${fallbackNumber}`;
+        if (!cyclone.named || !cyclone.name) return `TD ${fallbackNumber}`;
+        const prefix = cyclone.isExtratropical ? 'EX-' : (cyclone.isSubtropical ? 'SD ' : '');
+        const letter = cyclone.nameLetter ? `${cyclone.nameLetter}-` : '';
+        return `${prefix}${letter}${cyclone.name.toUpperCase()}`;
+    }
+
+    function getStormSeasonYear(cyclone = state.cyclone) {
+        return cyclone && cyclone.seasonYear ? cyclone.seasonYear : state.seasonYear;
+    }
+
+    function getSimulationDate(cyclone = state.cyclone, age = 0, month = state.currentMonth) {
+        const date = new Date(Date.UTC(getStormSeasonYear(cyclone), month - 1, 1));
+        date.setUTCHours(date.getUTCHours() + age);
+        return date;
     }
 
     // [新增] 初始化卫星云图 WebGL 上下文
@@ -468,7 +490,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // 气旋编号 (如果没有 finalStats，使用当前计数)
         const cycloneNum = state.lastFinalStats ? state.lastFinalStats.number.split(' ')[1] : String(state.simulationCount).padStart(2, '0');
-        const stormName = `${basinCode} ${cycloneNum}`;
+        const stormName = `${getStormSeasonYear(state.cyclone)} ${getStormDisplayName(state.cyclone, cycloneNum)} (${basinCode} ${cycloneNum})`;
 
         // B. 遍历轨迹获取极值
         if (state.cyclone && state.cyclone.track && state.cyclone.track.length > 0) {
@@ -488,7 +510,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // C. 计算日期范围 (MM/DD)
-        const currentYear = new Date().getFullYear();
+        const currentYear = getStormSeasonYear();
         // 模拟开始日期 (当月1号)
         const startDate = new Date(Date.UTC(currentYear, state.currentMonth - 1, 1));
         
@@ -789,102 +811,87 @@ document.addEventListener('DOMContentLoaded', () => {
         ctx.restore();
     }
     // --- UI更新函数 ---
-    // [新增] 警告和观察系统
+    // ICWC-style hazard products: each item has a type, severity, valid time,
+    // and an explicit source so the panel reads like an operational advisory.
     function updateWarningPanel() {
         const warningPanel = document.getElementById('warning-panel');
         const warningList = document.getElementById('warning-list');
-        if (!warningPanel || !warningList || !state.cyclone || state.cyclone.status !== 'active') {
+        const warningMeta = document.getElementById('warning-meta');
+        if (!warningPanel || !warningList || !state.cyclone || !state.cyclone.track || state.cyclone.track.length === 0) {
             if (warningPanel) warningPanel.classList.add('hidden');
             return;
         }
 
         const cyclone = state.cyclone;
         const warnings = [];
-        
-        // 基于气旋强度和位置生成警告
+        const stormName = getStormDisplayName(cyclone, String(state.simulationCount).padStart(2, '0'));
+        const validDate = getSimulationDate(cyclone, cyclone.age || 0);
+        const validText = `${String(validDate.getUTCMonth() + 1).padStart(2, '0')}/${String(validDate.getUTCDate()).padStart(2, '0')} ${String(validDate.getUTCHours()).padStart(2, '0')}Z`;
+        const addWarning = (type, level, title, message, icon, color) => warnings.push({ type, level, title, message, icon, color });
+
         if (cyclone.intensity >= 137) {
-            warnings.push({
-                type: 'warning',
-                level: 'extreme',
-                title: 'EXTREME WARNING',
-                message: `Cat 5 conditions expected within 24 hours`,
-                icon: 'fa-skull-crossbones',
-                color: 'text-purple-400'
-            });
+            addWarning('warning', 'extreme', 'CATEGORY 5 WIND WARNING', `${stormName}: catastrophic winds ongoing at ${Math.round(cyclone.intensity)} kt.`, 'fa-skull-crossbones', 'text-purple-400');
         } else if (cyclone.intensity >= 96) {
-            warnings.push({
-                type: 'warning',
-                level: 'major',
-                title: 'MAJOR HURRICANE WARNING',
-                message: `Cat 3-4 conditions expected within 24 hours`,
-                icon: 'fa-triangle-exclamation',
-                color: 'text-red-400'
-            });
+            addWarning('warning', 'major', 'MAJOR HURRICANE WARNING', `${stormName}: major-hurricane force winds ongoing at ${Math.round(cyclone.intensity)} kt.`, 'fa-triangle-exclamation', 'text-red-400');
         } else if (cyclone.intensity >= 64) {
-            warnings.push({
-                type: 'warning',
-                level: 'moderate',
-                title: 'HURRICANE WARNING',
-                message: `Cat 1-2 conditions expected within 24 hours`,
-                icon: 'fa-exclamation-circle',
-                color: 'text-orange-400'
-            });
+            addWarning('warning', 'warning', 'HURRICANE-FORCE WIND WARNING', `${stormName}: hurricane-force winds are present within the circulation.`, 'fa-wind', 'text-orange-400');
         } else if (cyclone.intensity >= 34) {
-            warnings.push({
-                type: 'watch',
-                level: 'moderate',
-                title: 'TROPICAL STORM WATCH',
-                message: `TS conditions possible within 48 hours`,
-                icon: 'fa-eye',
-                color: 'text-yellow-400'
-            });
+            addWarning('watch', 'watch', 'TROPICAL STORM WARNING', `${stormName}: tropical-storm-force winds are ongoing at ${Math.round(cyclone.intensity)} kt.`, 'fa-eye', 'text-yellow-400');
+        } else if (cyclone.intensity >= 24) {
+            addWarning('watch', 'watch', 'TROPICAL CYCLONE WATCH', `${stormName}: organized low-level circulation may strengthen during the next 24 hours.`, 'fa-binoculars', 'text-cyan-400');
         }
 
-        // 检查是否接近陆地
         if (cyclone.isLand || cyclone.isNearLand) {
-            warnings.push({
-                type: 'warning',
-                level: 'land',
-                title: 'LAND INTERACTION',
-                message: `Storm is over/near land. Weakening expected.`,
-                icon: 'fa-mountain',
-                color: 'text-amber-400'
-            });
+            addWarning('warning', 'land', 'LAND INTERACTION / LANDFALL', 'The circulation is over or close to land; destructive winds and rapid weakening are possible.', 'fa-mountain', 'text-amber-400');
         }
 
-        // 检查站点是否在影响范围内
+        if (cyclone.eyewallReplacementActive || cyclone.ercState === 'weakening' || cyclone.ercState === 'recovering') {
+            const phase = cyclone.eyewallReplacementPhase === 'rebuilding' ? 'OUTER EYEWALL REBUILDING' : 'EYEWALL REPLACEMENT UNDERWAY';
+            addWarning('advisory', 'erc', phase, `Cycle ${cyclone.eyewallReplacementCount || 1}: intensity may fluctuate while the wind field expands.`, 'fa-bullseye', 'text-fuchsia-400');
+        } else if (cyclone.lastEyewallReplacementAge === cyclone.age) {
+            addWarning('advisory', 'erc', 'EYEWALL REPLACEMENT COMPLETE', 'The inner core has reorganized; renewed strengthening remains possible.', 'fa-arrows-rotate', 'text-fuchsia-300');
+        }
+
+        if ((cyclone.stormSurge || 0) >= 3) {
+            addWarning('warning', 'surge', 'EXTREME STORM SURGE WARNING', `Coastal water rise estimated near ${cyclone.stormSurge.toFixed(1)} m above normal tide.`, 'fa-water', 'text-blue-300');
+        } else if ((cyclone.stormSurge || 0) >= 1) {
+            addWarning('warning', 'surge', 'STORM SURGE WARNING', `Coastal water rise estimated near ${cyclone.stormSurge.toFixed(1)} m above normal tide.`, 'fa-water', 'text-blue-400');
+        }
+
+        const recentTornadoReports = (cyclone.tornadoReports || []).filter(report => (cyclone.age || 0) - report.age <= 12);
+        if (recentTornadoReports.length > 0) {
+            const count = recentTornadoReports.reduce((sum, report) => sum + report.count, 0);
+            addWarning('warning', 'tornado', 'TORNADOES REPORTED', `${count} tornado report${count === 1 ? '' : 's'} in the latest 12 hours; shelter immediately if threatened.`, 'fa-tornado', 'text-red-300');
+        } else if ((cyclone.tornadoRisk || 0) >= 0.45) {
+            addWarning('watch', 'tornado', 'TORNADO WATCH', `Tornado potential is elevated near land (${Math.round(cyclone.tornadoRisk * 100)}% model risk).`, 'fa-tornado', 'text-red-400');
+        }
+
+        if (cyclone.retirementStatus === 'retirement-review') {
+            addWarning('advisory', 'retirement', 'NAME RETIREMENT REVIEW', `${stormName} is flagged for post-season retirement review: ${cyclone.retirementReason}.`, 'fa-box-archive', 'text-violet-300');
+        }
+
         if (state.siteLon != null && state.siteLat != null) {
             const dist = calculateDistance(cyclone.lat, cyclone.lon, state.siteLat, state.siteLon);
             if (dist <= 200 && cyclone.intensity >= 64) {
-                warnings.push({
-                    type: 'warning',
-                    level: 'critical',
-                    title: 'CRITICAL ALERT',
-                    message: `Direct impact expected at ${state.siteName || 'observation post'}`,
-                    icon: 'fa-house-crack',
-                    color: 'text-red-500'
-                });
+                addWarning('warning', 'critical', 'CRITICAL OBSERVATION-POST ALERT', `Direct impact expected at ${state.siteName || 'observation post'} (${Math.round(dist)} km).`, 'fa-house-crack', 'text-red-500');
             } else if (dist <= 400 && cyclone.intensity >= 34) {
-                warnings.push({
-                    type: 'watch',
-                    level: 'moderate',
-                    title: 'STORM WATCH',
-                    message: `Storm within 400km of ${state.siteName || 'observation post'}`,
-                    icon: 'fa-binoculars',
-                    color: 'text-yellow-400'
-                });
+                addWarning('watch', 'moderate', 'OBSERVATION-POST WATCH', `${stormName} is within ${Math.round(dist)} km of ${state.siteName || 'observation post'}.`, 'fa-binoculars', 'text-yellow-400');
             }
         }
 
-        // 更新UI
+        if (warningMeta) {
+            warningMeta.textContent = `ICWC ADVISORY ${cyclone.age ? String(Math.floor(cyclone.age / 3)).padStart(2, '0') : '00'} • VALID ${validText} • ${warnings.length} ACTIVE HAZARD${warnings.length === 1 ? '' : 'S'}`;
+        }
+
         if (warnings.length > 0) {
             warningPanel.classList.remove('hidden');
             warningList.innerHTML = warnings.map(w => `
-                <div class="flex items-start gap-2 p-2 bg-white/5 border-l-2 ${w.level === 'extreme' ? 'border-purple-500' : w.level === 'critical' ? 'border-red-500' : w.level === 'major' ? 'border-red-400' : 'border-yellow-500'} rounded">
+                <div class="flex items-start gap-2 p-2 bg-white/5 border-l-2 ${w.level === 'extreme' ? 'border-purple-500' : w.level === 'critical' || w.level === 'tornado' ? 'border-red-500' : w.level === 'major' ? 'border-red-400' : w.level === 'surge' ? 'border-blue-400' : w.level === 'erc' ? 'border-fuchsia-400' : 'border-yellow-500'} rounded">
                     <i class="fa-solid ${w.icon} ${w.color} mt-0.5"></i>
                     <div class="flex-1">
                         <div class="text-[10px] font-bold ${w.color} uppercase tracking-wider">${w.title}</div>
                         <div class="text-[9px] text-slate-400 mt-0.5">${w.message}</div>
+                        <div class="text-[8px] text-slate-600 mt-1 uppercase">${w.type} • ICWC hazard desk</div>
                     </div>
                 </div>
             `).join('');
@@ -909,7 +916,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         // 1. 计算时间字符串
-        const currentYear = new Date().getFullYear();
+        const currentYear = getStormSeasonYear();
         const startDate = new Date(Date.UTC(currentYear, currentMonth - 1, 1));
         const currentDate = new Date(startDate.getTime() + currentAge * 3600 * 1000);
         
@@ -1005,6 +1012,15 @@ function updateInfoPanel() {
             damageEl.textContent = `$${damage.toFixed(0)}M`;
         }
     }
+    const surgeEl = document.getElementById('storm-surge');
+    const tornadoEl = document.getElementById('tornadoes');
+    const ercEl = document.getElementById('eyewall-status');
+    if (surgeEl) surgeEl.textContent = `${(state.cyclone.stormSurge || 0).toFixed(1)}m`;
+    if (tornadoEl) tornadoEl.textContent = String(state.cyclone.tornadoesReported || 0);
+    if (ercEl) {
+        const ercState = state.cyclone.eyewallReplacementActive ? (state.cyclone.eyewallReplacementPhase || 'active').toUpperCase() : 'NOMINAL';
+        ercEl.textContent = `${ercState} / ${state.cyclone.eyewallReplacementCount || 0}`;
+    }
         const isLand = state.cyclone.isLand || false;
         const currentSST = getSST(state.cyclone.lat, state.cyclone.lon, state.currentMonth, state.GlobalTemp);
         const basin = basinSelector.value || 'WPAC'; // 默认西太
@@ -1020,8 +1036,8 @@ function updateInfoPanel() {
             });
         }
         
-        // 直接使用气旋对象里的名字，不再重新查表
-        const stormName = state.cyclone.name ? state.cyclone.name.toUpperCase() : "UNKNOWN";
+        // Names are displayed with the annual A/B/C sequence when available.
+        const stormName = getStormDisplayName(state.cyclone, cycloneNum);
         let statusText = "";
 
         // 判定逻辑：只要巅峰风速达到过 34kt，或者已经获得命名(named标志位)
@@ -1029,11 +1045,10 @@ function updateInfoPanel() {
             // 已获得命名
             if (state.cyclone.intensity >= 34) {
                 // 当前仍是风暴级以上 -> 显示名字 (或 EX-名字)
-                if (state.cyclone.isExtratropical) statusText = `EX-${stormName}`;
-                else statusText = stormName;
+                statusText = stormName;
             } else {
-                // 当前已减弱为低压，但保留名字 -> 显示 TD 名字
-                if (state.cyclone.isExtratropical) statusText = `EX-${stormName}`; 
+                // Retain the name after weakening, while preserving the lifecycle prefix.
+                if (state.cyclone.isExtratropical) statusText = `EX-${stormName}`;
                 else if (state.cyclone.isSubtropical) statusText = `SD ${stormName}`;
                 else statusText = `TD ${stormName}`;
             }
@@ -1044,6 +1059,10 @@ function updateInfoPanel() {
             else statusText = `TD ${cycloneNum}`;
         }
         document.getElementById('status').textContent = statusText;
+        const seasonBadge = document.getElementById('season-badge');
+        if (seasonBadge) {
+            seasonBadge.textContent = `${getStormSeasonYear(state.cyclone)} SEASON • ${state.cyclone.nameLetter || '—'} LIST • ${state.cyclone.basin || basin}`;
+        }
 
         if (state.cyclone && state.pressureSystems) {
             const samplingRadiusDeg = state.cyclone.circulationSize * 0.005;
@@ -1192,6 +1211,7 @@ function updateInfoPanel() {
             // 使用 span 调整间距
             const label = `${weatherIcon} <span style="margin-left:2px;">${dirText}</span> / ${speedKt}KT`;
             let localPressure = 1010; // 默认值
+            let localSurge = 0;
             // 1. 获取当前模拟时间的 UTC 小时数
             // state.cyclone.age 是模拟开始后的累计小时数
             // 假设模拟通常从 00Z 或 06Z 开始并不重要，关键是相对变化
@@ -1226,6 +1246,10 @@ function updateInfoPanel() {
                 
                 // 叠加潮汐修正
                 localPressure = baseP + diurnalBias + microNoise;
+                const siteLandStatus = getLandStatus(state.siteLon, state.siteLat, 1.5);
+                const surgeRadius = Math.max(80, (state.cyclone.circulationSize || 300) * 1.2);
+                const coastalExposure = siteLandStatus.isLand || siteLandStatus.isNearLand ? Math.max(0, 1 - distKm / surgeRadius) : 0;
+                localSurge = Number(((state.cyclone.stormSurge || 0) * coastalExposure).toFixed(1));
             } else {
                 localPressure = Pn + diurnalBias + microNoise;
             }
@@ -1239,6 +1263,8 @@ function updateInfoPanel() {
                 label: label, // 现在这是 HTML 字符串
                 dbz: dbz,     // 保存 dBZ 数值备用
                 pressure: localPressure,
+                stormSurge: localSurge,
+                tornadoesReported: state.cyclone.tornadoesReported || 0,
                 isSelected: state.isSiteSelected
             };
         } else {
@@ -1259,7 +1285,7 @@ function updateInfoPanel() {
             const cycloneInfo = {
                 basin: basinId,
                 month: state.currentMonth,
-                year: new Date().getFullYear()
+                year: state.seasonYear
             };
             
             // 生成最佳路径文本
@@ -1294,14 +1320,13 @@ function updateInfoPanel() {
 
             // 2. 获取名字 (使用 basinId 查表)
             const cycloneNum = String(state.simulationCount).padStart(2, '0');
-            const stormName = state.cyclone.name ? state.cyclone.name.toUpperCase() : "UNKNOWN";
+            const stormName = getStormDisplayName(state.cyclone, cycloneNum);
             let statusText = "";
 
             // 逻辑与 updateInfoPanel 完全一致
             if (peakWind >= 34 || state.cyclone.named) {
                 if (state.cyclone.intensity >= 34) {
-                    if (state.cyclone.isExtratropical) statusText = `EX-${stormName}`;
-                    else statusText = stormName;
+                    statusText = stormName;
                 } else {
                     if (state.cyclone.isExtratropical) statusText = `EX-${stormName}`;
                     else if (state.cyclone.isSubtropical) statusText = `SD ${stormName}`;
@@ -1314,12 +1339,15 @@ function updateInfoPanel() {
             }
             // 更新 UI
             document.getElementById('status').textContent = statusText;
+            const finalSeasonBadge = document.getElementById('season-badge');
+            if (finalSeasonBadge) finalSeasonBadge.textContent = `${getStormSeasonYear(state.cyclone)} SEASON • ${state.cyclone.nameLetter || '—'} LIST • ${basinId}`;
             document.getElementById('map-info-box').classList.add('hidden');
             
             // 重置按钮状态
             pauseButton.disabled = true;
             pauseButton.innerHTML = '<i class="fa-solid fa-pause text-xs"></i>';
             monthSelector.disabled = false;
+            if (yearSelector) yearSelector.disabled = false;
             basinSelector.disabled = false;
             globalTempSlider.disabled = false;
             globalShearSlider.disabled = false;
@@ -1336,7 +1364,14 @@ function updateInfoPanel() {
                 minPressure: Math.round(minPressure),
                 ace: state.cyclone.ace.toFixed(2),
                 deaths: state.cyclone.deaths || 0,
-                damage: state.cyclone.damage || 0
+                damage: state.cyclone.damage || 0,
+                stormSurge: state.cyclone.peakStormSurge || 0,
+                tornadoes: state.cyclone.tornadoesReported || 0,
+                eyewallReplacements: state.cyclone.eyewallReplacementCount || 0,
+                retirementStatus: state.cyclone.retirementStatus,
+                retirementReason: state.cyclone.retirementReason,
+                seasonYear: state.cyclone.seasonYear,
+                nameLetter: state.cyclone.nameLetter
             };
             state.lastFinalStats = finalStats;
 
@@ -1362,7 +1397,8 @@ function updateInfoPanel() {
                 const peakIntensityKt = Math.round(peakWind);
                 
                 // 历史列表显示的名称
-                const historyName = `${statusText} (${basinCode} ${cycloneNumStr}) - T+${totalHours}h, Peak ${peakIntensityKt}kt`;
+                const retirementTag = state.cyclone.retirementStatus === 'retirement-review' ? ' • RETIREMENT REVIEW' : '';
+                const historyName = `${state.cyclone.seasonYear || state.seasonYear} ${statusText} (${basinCode} ${cycloneNumStr}) - T+${totalHours}h, Peak ${peakIntensityKt}kt${retirementTag}`;
                 const cycloneClone = { ...state.cyclone };
                 const satCacheRef = cycloneClone.satelliteCache;
                 delete cycloneClone.satelliteCache;
@@ -1381,6 +1417,7 @@ function updateInfoPanel() {
             } catch (e) {
                 console.error("无法保存历史记录:", e);
             }
+            updateWarningPanel();
             return;
         }        // [修改] 传递 GlobalTemp 到模型
         const wasNamed = state.cyclone.named;
@@ -1405,8 +1442,8 @@ function updateInfoPanel() {
             state.pressureHistory.push(snapshot);
         }
         if (!wasNamed && state.cyclone.named) {
-            state.nextNameIndex++;
-            console.log("Name assigned. Next name index:", state.nextNameIndex);
+            state.nextNameIndex = (state.cyclone.nameIndex ?? state.nextNameIndex) + 1;
+            console.log("Name assigned. Next A/B/C index:", state.nextNameIndex);
         }
 
         if (!state.hasTriggeredCat1News && state.cyclone.intensity >= 64 && !state.cyclone.isExtratropical) {
@@ -1414,7 +1451,7 @@ function updateInfoPanel() {
             
             // 获取名字 (如果没有名字显示编号)
             const cycloneNum = String(state.simulationCount).padStart(2, '0');
-            const displayName = state.cyclone.name ? state.cyclone.name.toUpperCase() : `SYSTEM ${cycloneNum}`;
+            const displayName = state.cyclone.named ? getStormDisplayName(state.cyclone, cycloneNum) : `SYSTEM ${cycloneNum}`;
             const currentBasinId = basinSelector.value; 
 
             let stormTerm = "HURRICANE";
@@ -1432,7 +1469,7 @@ function updateInfoPanel() {
             state.hasTriggeredCat5News = true;
             
             const cycloneNum = String(state.simulationCount).padStart(2, '0');
-            const displayName = state.cyclone.name ? state.cyclone.name.toUpperCase() : `SYSTEM ${cycloneNum}`;
+            const displayName = state.cyclone.named ? getStormDisplayName(state.cyclone, cycloneNum) : `SYSTEM ${cycloneNum}`;
             const currentBasinId = basinSelector.value;
 
             // 术语区分：西太叫“超强台风”，其他叫“五级飓风”
@@ -1575,14 +1612,18 @@ document.getElementById('warning-panel').classList.add('hidden');
         // [UI修复] 设置为暂停图标
         pauseButton.innerHTML = '<i class="fa-solid fa-pause text-xs"></i>';
         
-        const selectedBasin = basinSelector.value;
-        if (!state.lastBasin || state.lastBasin !== selectedBasin) {
-            const list = NAME_LISTS[selectedBasin] || NAME_LISTS['WPAC'];
-            state.nextNameIndex = Math.floor(Math.random() * list.length);
+        const selectedBasin = basinSelector.value;
+        const selectedYear = yearSelector ? parseInt(yearSelector.value, 10) : new Date().getFullYear();
+        if (state.lastBasin !== selectedBasin || state.lastSeasonYear !== selectedYear) {
+            // Annual lists are A/B/C ordered; do not randomize the first name.
+            state.nextNameIndex = 0;
         }
         state.lastBasin = selectedBasin;
+        state.lastSeasonYear = selectedYear;
+        state.seasonYear = selectedYear;
         state.currentMonth = parseInt(monthSelector.value, 10);
         monthSelector.disabled = true;
+if (yearSelector) yearSelector.disabled = true;
         basinSelector.disabled = true;
         // [修改] 禁用设置滑块
         globalTempSlider.disabled = true;
@@ -1595,7 +1636,7 @@ document.getElementById('warning-panel').classList.add('hidden');
         settingsMenu.classList.add('hidden'); // [修改] 开始模拟时隐藏菜单
 
         // [修改] 传递 GlobalTemp 到模型
-        state.cyclone = initializeCyclone(state.world, state.currentMonth, selectedBasin, state.GlobalTemp, state.GlobalShear, state.customLon, state.customLat); 
+        state.cyclone = initializeCyclone(state.world, state.currentMonth, selectedBasin, state.GlobalTemp, state.GlobalShear, state.customLon, state.customLat, state.seasonYear);
         state.cyclone.track.push([state.cyclone.lon, state.cyclone.lat, state.cyclone.intensity, false, false, state.cyclone.circulationSize, state.cyclone.isSubtropical]);
         state.pressureSystems = initializePressureSystems(state.cyclone, state.currentMonth, state.GlobalTemp, state.GlobalShear);
         state.frontalZone = updateFrontalZone(state.pressureSystems, state.currentMonth, state.GlobalTemp, state.GlobalShear);
@@ -1802,8 +1843,8 @@ document.getElementById('warning-panel').classList.add('hidden');
         }
 
         const basinMap = { 'WPAC': 'WP', 'EPAC': 'EP', 'NATL': 'AL', 'NIO': 'IO', 'SHEM': 'SH', 'SIO': 'SH', 'SATL': 'SL' };
-        const basin = basinMap[basinSelector.value] || 'WP';
-        const year = new Date().getFullYear();
+        const basin = basinMap[basinSelector.value] || 'WP';
+        const year = state.seasonYear;
         const month = String(state.currentMonth).padStart(2, '0');
         const firstLine = text.split('\n')[0];
         const cycloneNum = firstLine ? firstLine.split(',')[1].trim() : '01';
@@ -2192,7 +2233,15 @@ document.getElementById('warning-panel').classList.add('hidden');
         jtwcOutput.innerHTML = `
             <div class="flex h-[600px] w-full"> 
                 <div class="w-40 flex-shrink-0 bg-gray-100 border-r border-gray-300 p-2 flex flex-col gap-2">
-                    <div class="text-xs font-bold text-gray-500 mb-2 px-2">PRODUCTS</div>
+                    <div class="text-xs font-bold text-gray-500 mb-2 px-2">ICWC PRODUCTS</div>
+
+                    <button id="jtwc-tab-advisory" class="text-left px-3 py-2 text-sm font-bold bg-white border border-gray-300 rounded shadow-sm text-cyan-700 transition-all hover:bg-gray-50">
+                        ADVISORY BULLETIN
+                    </button>
+
+                    <button id="jtwc-tab-hazards" class="text-left px-3 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded transition-colors">
+                        HAZARDS & RETIREMENT
+                    </button>
                     
                     <button id="jtwc-tab-graphic" class="text-left px-3 py-2 text-sm font-bold bg-white border border-gray-300 rounded shadow-sm text-cyan-700 transition-all hover:bg-gray-50">
                         WARNING GRAPHIC
@@ -2233,6 +2282,8 @@ document.getElementById('warning-panel').classList.add('hidden');
         `;
 
         const contentArea = document.getElementById('jtwc-content-area');
+        const tabAdvisory = document.getElementById('jtwc-tab-advisory');
+        const tabHazards = document.getElementById('jtwc-tab-hazards');
         const tabGraphic = document.getElementById('jtwc-tab-graphic');
         const tabProb34 = document.getElementById('jtwc-tab-prob34');
         const tabProb64 = document.getElementById('jtwc-tab-prob64');
@@ -2251,7 +2302,7 @@ document.getElementById('warning-panel').classList.add('hidden');
         };
 
         const updateTabStyles = (activeTab) => {
-            [tabGraphic, tabProb34, tabProb64, tabSatellite, tabPhase, tabStation, tabSynoptic].forEach(tab => {
+            [tabAdvisory, tabHazards, tabGraphic, tabProb34, tabProb64, tabSatellite, tabPhase, tabStation, tabSynoptic].forEach(tab => {
                 if (tab === activeTab) {
                     tab.className = "text-left px-3 py-2 text-sm font-bold bg-white border border-gray-300 rounded shadow-sm text-cyan-700 transition-all";
                 } else {
@@ -2261,6 +2312,81 @@ document.getElementById('warning-panel').classList.add('hidden');
         };
 
         // --- 2. 定义渲染函数 ---
+
+        const showAdvisory = () => {
+            updateTabStyles(tabAdvisory);
+            currentMode = 'ADVISORY';
+            currentCanvas = null;
+            const point = targetCyclone.track[renderIndex] || targetCyclone.track[targetCyclone.track.length - 1] || [];
+            const targetAge = renderIndex * 3;
+            const wind = Math.round(point[2] || targetCyclone.intensity || 0);
+            const pressure = Math.round(point[10] || windToPressure(wind, targetCyclone.circulationSize || 300, targetCyclone.basin || basinSelector.value));
+            const category = getCategory(wind, point[3], point[4], point[6]);
+            const valid = getSimulationDate(targetCyclone, targetAge, targetCyclone.currentMonth || state.currentMonth);
+            const validText = `${targetCyclone.seasonYear || state.seasonYear}-${String(valid.getUTCMonth() + 1).padStart(2, '0')}-${String(valid.getUTCDate()).padStart(2, '0')} ${String(valid.getUTCHours()).padStart(2, '0')}Z`;
+            const name = getStormDisplayName(targetCyclone, String(state.simulationCount).padStart(2, '0'));
+            const reportCount = targetCyclone.tornadoesReported || 0;
+            const ercText = targetCyclone.eyewallReplacementCount ? `${targetCyclone.eyewallReplacementCount} cycle(s) • ${targetCyclone.eyewallReplacementPhase || targetCyclone.ercState}` : 'No replacement cycle recorded';
+            contentArea.innerHTML = `
+                <div class="w-full max-w-3xl bg-white text-slate-800 shadow-lg border border-slate-300 font-mono p-6 self-start">
+                    <div class="flex justify-between items-start border-b-2 border-slate-800 pb-4 mb-4">
+                        <div>
+                            <div class="text-[10px] font-bold text-red-600 tracking-[0.25em]">ICWC / INDEPENDENT CYCLONE WARNING CENTER</div>
+                            <h2 class="text-3xl font-black mt-1">${name}</h2>
+                            <div class="text-xs text-slate-500">${targetCyclone.seasonYear || state.seasonYear} SEASON • ${targetCyclone.basin || basinSelector.value} • ADVISORY ${String(Math.floor(targetAge / 3)).padStart(2, '0')}</div>
+                        </div>
+                        <div class="text-right text-xs font-bold"><div>VALID</div><div class="text-red-600">${validText}</div></div>
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+                        <div class="bg-slate-100 p-3"><div class="text-[9px] text-slate-500">CLASSIFICATION</div><div class="font-black">${category.name}</div></div>
+                        <div class="bg-slate-100 p-3"><div class="text-[9px] text-slate-500">MAX WIND</div><div class="font-black">${wind} KT</div></div>
+                        <div class="bg-slate-100 p-3"><div class="text-[9px] text-slate-500">MSLP</div><div class="font-black">${pressure} HPA</div></div>
+                        <div class="bg-slate-100 p-3"><div class="text-[9px] text-slate-500">POSITION</div><div class="font-black">${(point[1] || targetCyclone.lat || 0).toFixed(1)} / ${(point[0] || targetCyclone.lon || 0).toFixed(1)}</div></div>
+                    </div>
+                    <div class="border-l-4 border-red-600 pl-4 text-sm leading-relaxed mb-5">
+                        ${name} is being monitored by the ICWC. This product combines the simulated track, inner-core state, coastal surge potential, and severe-weather reports. It is not a real-world warning.
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                        <div><span class="text-slate-500">STORM SURGE</span><br><strong>${(targetCyclone.stormSurge || 0).toFixed(1)} M</strong></div>
+                        <div><span class="text-slate-500">TORNADOES REPORTED</span><br><strong>${reportCount}</strong></div>
+                        <div><span class="text-slate-500">EYEWALL REPLACEMENTS</span><br><strong>${ercText}</strong></div>
+                        <div><span class="text-slate-500">RETIREMENT</span><br><strong>${targetCyclone.retirementStatus || 'NOT REVIEWED'}</strong></div>
+                    </div>
+                </div>
+            `;
+        };
+
+        const showHazards = () => {
+            updateTabStyles(tabHazards);
+            currentMode = 'HAZARDS';
+            currentCanvas = null;
+            const reports = targetCyclone.tornadoReports || [];
+            const events = targetCyclone.hazardEvents || [];
+            const retiredNames = (RETIRED_STORM_NAMES[targetCyclone.basin] || []).join(' • ') || 'NONE ON CURRENT BASIN LEDGER';
+            const eventMarkup = events.slice().reverse().slice(0, 10).map(event => `
+                <div class="border-l-4 ${event.type === 'tornado-report' ? 'border-red-500' : event.type === 'storm-surge' ? 'border-blue-500' : 'border-fuchsia-500'} bg-white p-3 shadow-sm">
+                    <div class="text-[10px] font-black uppercase">${event.type.replaceAll('-', ' ')}</div>
+                    <div class="text-xs text-slate-600 mt-1">T+${event.age || 0}H • ${event.message || 'ICWC event logged'}</div>
+                </div>
+            `).join('');
+            contentArea.innerHTML = `
+                <div class="w-full max-w-3xl self-start">
+                    <div class="bg-slate-900 text-white p-5 mb-4">
+                        <div class="text-[10px] text-red-300 tracking-[0.25em]">ICWC HAZARD COORDINATION DESK</div>
+                        <h2 class="text-2xl font-black mt-1">${getStormDisplayName(targetCyclone, 'SYSTEM')}</h2>
+                        <div class="text-xs text-slate-400 mt-2">${targetCyclone.seasonYear || state.seasonYear} • ${targetCyclone.basin || basinSelector.value} • ${reports.length} tornado report window(s)</div>
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                        <div class="bg-blue-50 border border-blue-200 p-3"><div class="text-[9px] text-blue-600">PEAK SURGE</div><div class="text-xl font-black text-blue-900">${(targetCyclone.peakStormSurge || targetCyclone.stormSurge || 0).toFixed(1)} m</div></div>
+                        <div class="bg-red-50 border border-red-200 p-3"><div class="text-[9px] text-red-600">TORNADOES</div><div class="text-xl font-black text-red-900">${targetCyclone.tornadoesReported || 0}</div></div>
+                        <div class="bg-fuchsia-50 border border-fuchsia-200 p-3"><div class="text-[9px] text-fuchsia-600">ERC CYCLES</div><div class="text-xl font-black text-fuchsia-900">${targetCyclone.eyewallReplacementCount || 0}</div></div>
+                        <div class="bg-violet-50 border border-violet-200 p-3"><div class="text-[9px] text-violet-600">RETIREMENT</div><div class="text-xs font-black text-violet-900 mt-2">${targetCyclone.retirementStatus || 'NOT REVIEWED'}</div></div>
+                    </div>
+                    <div class="bg-violet-50 border border-violet-200 p-3 mb-3 text-xs"><div class="text-[9px] text-violet-600 font-bold">CURRENT NAME RETIREMENT LEDGER</div><div class="font-bold text-violet-900 mt-1">${retiredNames}</div></div>
+                    <div class="space-y-2">${eventMarkup || '<div class="bg-white p-6 text-center text-slate-500">No hazard events recorded.</div>'}</div>
+                </div>
+            `;
+        };
         
         const showGraphic = () => {
             updateTabStyles(tabGraphic);
@@ -2362,7 +2488,7 @@ document.getElementById('warning-panel').classList.add('hidden');
                 infoOverlay.className = "absolute top-4 left-4 text-white/80 font-mono text-xs bg-black/50 p-2 rounded pointer-events-none";
             
                 // 格式化时间戳
-                const year = new Date().getFullYear();
+                const year = targetCyclone.seasonYear || state.seasonYear;
                 const month = (targetCyclone.currentMonth || 8) - 1;
                 const d = new Date(Date.UTC(year, month, 1));
                 d.setUTCHours(d.getUTCHours() + bestShot.age);
@@ -2556,7 +2682,7 @@ if (isHistoryMode) {
 
             // 5. 渲染 HTML (保持原有样式)
             const siteName = state.siteName || "UNNAMED STATION";
-            const year = new Date().getFullYear();
+            const year = targetCyclone.seasonYear || state.seasonYear;
             const monthIndex = (state.currentMonth || 8) - 1; 
             const simDate = new Date(Date.UTC(year, monthIndex, 1)); // 从当月1号开始
             simDate.setUTCHours(simDate.getUTCHours() + targetHour); // 加上累计小时数
@@ -2670,7 +2796,7 @@ contentArea.innerHTML = `
                 titleLabel.textContent = "FULL OBSERVATION LOG (CHRONOLOGICAL)";
                 
                 // 1. 准备基础日期参数
-                const baseYear = new Date().getFullYear();
+                const baseYear = targetCyclone.seasonYear || state.seasonYear;
                 const baseMonthIndex = (state.currentMonth || 8) - 1; 
 
                 // 2. 遍历历史切片，生成每一行报文
@@ -2721,6 +2847,8 @@ contentArea.innerHTML = `
         };
 
         // --- 3. 绑定事件 ---
+        tabAdvisory.onclick = showAdvisory;
+        tabHazards.onclick = showHazards;
         tabGraphic.onclick = showGraphic;
         tabProb34.onclick = () => showProb(34);
         tabProb64.onclick = () => showProb(64);
@@ -2729,6 +2857,16 @@ contentArea.innerHTML = `
 
         const saveBtn = document.getElementById('saveJtwcImage');
         saveBtn.onclick = () => {
+
+            if (currentMode === 'ADVISORY' || currentMode === 'HAZARDS') {
+                const blob = new Blob([contentArea.innerText], { type: 'text/plain' });
+                const link = document.createElement('a');
+                link.download = `ICWC_${targetCyclone.name || 'STORM'}_${currentMode}_T${renderIndex * 3}.txt`;
+                link.href = URL.createObjectURL(blob);
+                link.click();
+                URL.revokeObjectURL(link.href);
+                return;
+            }
 
             if (currentMode === 'SATELLITE') {
                 const name = targetCyclone.name || 'STORM';
@@ -2944,7 +3082,7 @@ contentArea.innerHTML = `
             }
         };
 
-        showGraphic();
+        showAdvisory();
     });
 
     closeJtwcModal.addEventListener('click', () => jtwcModal.classList.add('hidden'));

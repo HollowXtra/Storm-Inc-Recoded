@@ -406,10 +406,13 @@
     <!-- [新增] 警告和观察面板 -->
     <div id="warning-panel" class="hidden fixed top-24 right-6 w-80 bg-black/80 backdrop-blur-md border border-white/20 shadow-2xl z-50 rounded-lg overflow-hidden">
         <div class="bg-red-900/80 px-4 py-2 border-b border-red-500/50 flex items-center gap-2">
-            <i class="fa-solid fa-triangle-exclamation text-red-400"></i>
-            <h3 class="text-xs font-bold text-red-300 uppercase tracking-widest">Warnings & Watches</h3>
+            <i class="fa-solid fa-tower-broadcast text-red-400"></i>
+            <div>
+                <h3 class="text-xs font-bold text-red-300 uppercase tracking-widest">ICWC Warning & Hazard Desk</h3>
+                <div id="warning-meta" class="text-[8px] text-red-200/60 font-mono mt-0.5">AWAITING ADVISORY</div>
+            </div>
         </div>
-        <div id="warning-list" class="p-3 space-y-2 max-h-60 overflow-y-auto no-scrollbar">
+        <div id="warning-list" class="p-3 space-y-2 max-h-80 overflow-y-auto no-scrollbar">
             <!-- 警告项将动态插入这里 -->
         </div>
     </div>
@@ -611,6 +614,7 @@
                         <div class="border-b border-white/10 pb-2">
                             <h2 id="status" class="text-3xl font-black text-white tracking-tight">TD 01W</h2>
                             <div class="flex justify-between items-end mt-1">
+                                <span id="season-badge" class="text-[8px] text-slate-500 font-mono tracking-widest">2026 SEASON • — LIST • WPAC</span>
                                 <p id="simulationTime" class="text-cyan-400 font-mono text-[10px] tracking-wider">T+0h</p>
                                 <div id="category" class="font-bold text-amber-400 text-xs uppercase tracking-wider bg-amber-900/20 px-2 py-0.5 border border-amber-500/30">--</div>
                             </div>
@@ -646,6 +650,18 @@
                             <div class="flex justify-between">
                                 <span><i class="fa-solid fa-dollar-sign mr-1 text-yellow-500"></i>Damage:</span>
                                 <span id="damage" class="text-yellow-400 font-bold">$0M</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span><i class="fa-solid fa-water mr-1 text-blue-400"></i>Storm Surge:</span>
+                                <span id="storm-surge" class="text-blue-300 font-bold">0.0m</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span><i class="fa-solid fa-tornado mr-1 text-red-400"></i>Tornadoes Reported:</span>
+                                <span id="tornadoes" class="text-red-300 font-bold">0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span><i class="fa-solid fa-bullseye mr-1 text-fuchsia-400"></i>Eyewall Replacement:</span>
+                                <span id="eyewall-status" class="text-fuchsia-300 font-bold">NOMINAL / 0</span>
                             </div>
                         </div>
 
@@ -756,6 +772,13 @@
                         <option value="SIO">SIO</option>
                         <option value="SATL">SATL</option>
                     </select>
+                    <select id="yearSelector" class="bg-black/30 border border-white/10 text-slate-300 text-xs py-1.5 px-2 rounded-lg hover:border-cyan-500/50 focus:border-cyan-500 transition-colors outline-none cursor-pointer appearance-none text-center font-mono" title="Season year">
+                        <option value="2024">2024</option>
+                        <option value="2025">2025</option>
+                        <option value="2026" selected>2026</option>
+                        <option value="2027">2027</option>
+                        <option value="2028">2028</option>
+                    </select>
                     <select id="monthSelector" class="bg-black/30 border border-white/10 text-slate-300 text-xs py-1.5 px-2 md:px-3 rounded-lg hover:border-cyan-500/50 focus:border-cyan-500 transition-colors outline-none cursor-pointer appearance-none text-center font-mono w-16">
                         <option value="1">JAN</option><option value="2">FEB</option><option value="3">MAR</option><option value="4">APR</option>
                         <option value="5">MAY</option><option value="6">JUN</option><option value="7" selected>JUL</option><option value="8">AUG</option>
@@ -789,8 +812,8 @@
                     <button id="toggleHistoryButton" class="bg-slate-900 border border-slate-600 text-slate-300 hover:text-cyan-400 w-8 h-8 rounded-lg flex items-center justify-center transition-all text-xs" title="History">
                         <i class="fa-solid fa-clock-rotate-left"></i>
                     </button>
-                    <div class="h-6 w-px bg-white/10 mx-1"></div> <button id="generateJTWCButton" class="hidden relative group bg-red-900/40 border border-red-500/50 text-red-400 hover:bg-red-600 hover:text-white w-24 h-8 rounded-lg flex items-center justify-center transition-all text-[10px] font-bold tracking-wider uppercase shadow-[0_0_15px_rgba(220,38,38,0.3)] animate-pulse" title="Generate JTWC Graphic">
-                        <i class="fa-solid fa-file-image mr-2"></i> ICWC
+                    <button id="generateJTWCButton" class="hidden relative group bg-red-900/40 border border-red-500/50 text-red-400 hover:bg-red-600 hover:text-white w-24 h-8 rounded-lg flex items-center justify-center transition-all text-[10px] font-bold tracking-wider uppercase shadow-[0_0_15px_rgba(220,38,38,0.3)] animate-pulse" title="Open ICWC Products">
+                                            <i class="fa-solid fa-file-contract mr-2"></i> ICWC
                         <span class="absolute -top-10 left-1/2 -translate-x-1/2 bg-black/90 text-white text-[9px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none border border-red-500/30">
                             Export Graphic
                         </span>
@@ -830,8 +853,8 @@
             <div id="jtwcOutput" class="w-full bg-[#99badd] border-2 border-black flex justify-center items-center overflow-hidden" style="min-height: 400px;">
                 </div>
             <div class="bg-white text-black p-2 text-xs font-mono flex justify-between items-center border-t-2 border-black mt-1">
-                <span>VISUALIZATION PROVIDED BY INDEPENDENT CYCLONE WARNING CENTER</span>
-                <button id="saveJtwcImage" class="bg-blue-600 text-white px-3 py-1 hover:bg-blue-700 font-bold">SAVE IMAGE</button>
+                <span>ICWC • INDEPENDENT CYCLONE WARNING CENTER • OPERATIONAL PRODUCTS</span>
+                <button id="saveJtwcImage" class="bg-blue-600 text-white px-3 py-1 hover:bg-blue-700 font-bold">SAVE PRODUCT</button>
             </div>
         </div>
     </div>
@@ -1144,13 +1167,13 @@
                                     <i class="fa-solid fa-file-contract text-2xl text-red-500"></i>
                                 </div>
                                 <div>
-                                    <h3 class="text-xl font-bold text-white uppercase" data-t="detail_icwc_title">ICWC Agency Products</h3>
+                                    <h3 class="text-xl font-bold text-white uppercase" data-t="detail_icwc_title">ICWC Operations Center</h3>
                                     <p class="text-[10px] text-slate-500 font-mono">LAYER: ADVISORY GENERATION</p>
                                 </div>
                             </div>
                             
                             <p class="text-xs text-slate-300 leading-relaxed" data-t="detail_icwc_desc">
-                            The Independent Cyclone Warning Center (ICWC) is a tropical cyclone monitoring agency affiliated with STROM INC, providing tropical cyclone analysis and forecasting services worldwide. Accessible via the <strong>ICWC</strong> button when a track is selected.
+                            The Independent Cyclone Warning Center (ICWC) is the simulator's operational desk for annual storm naming, warning coordination, eyewall-replacement analysis, tornado reports, storm-surge guidance, and post-season name-retirement review. Open the ICWC button after a track is selected.
                             </p>
 
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
@@ -1160,7 +1183,7 @@
                                         <span class="text-red-400 font-bold text-xs group-hover:text-red-300" data-t="icwc_graphic">Warning Graphic</span>
                                     </div>
                                     <p class="text-[10px] text-slate-400 leading-relaxed" data-t="icwc_graphic_desc">
-                                        Standard operational map showing past track, forecast cone, wind radii, and key city impacts.
+                                        Operational map showing the past track, forecast cone, wind radii, storm-surge envelope, tornado reports, and key impacts.
                                     </p>
                                 </div>
 
@@ -1177,10 +1200,10 @@
                                 <div class="bg-black/40 p-4 border border-white/10 rounded hover:border-indigo-500/50 transition-colors group md:col-span-2">
                                     <div class="flex items-center gap-2 mb-2">
                                         <i class="fa-solid fa-tower-broadcast text-indigo-400 text-xs group-hover:text-indigo-300"></i>
-                                        <span class="text-indigo-400 font-bold text-xs group-hover:text-indigo-300" data-t="icwc_station">Station Observations</span>
+                                        <span class="text-indigo-400 font-bold text-xs group-hover:text-indigo-300" data-t="icwc_station">Hazard Coordination Desk</span>
                                     </div>
                                     <p class="text-[10px] text-slate-400 leading-relaxed" data-t="icwc_station_desc">
-                                        Retrieves historical telemetry logs for a specific time step. visualizes localized wind barbs, MSLP trends, and weather conditions relative to the storm's position.
+                                        Combines observation-post telemetry with tornado reports, coastal surge estimates, eyewall-replacement cycles, and retirement-review status.
                                     </p>
                                 </div>
                             </div>
@@ -1447,14 +1470,14 @@
                     'obs_rad_v': 'Radial Velocity (V)',
                     'obs_rad_v_desc': 'Doppler effect. Use Shortcut <strong>[D]</strong> to toggle. <span class="text-blue-400">Blue/Green</span> = Inbound, <span class="text-red-400">Red/Pink</span> = Outbound.',
                     'tab_icwc': 'ICWC Products',
-                    'detail_icwc_title': 'ICWC Agency Products',
-                    'detail_icwc_desc': 'The Independent Cyclone Warning Center (ICWC) is a tropical cyclone monitoring agency affiliated with STROM INC, providing tropical cyclone analysis and forecasting services worldwide. Accessible via the <strong>ICWC</strong> button when a track is selected.',
+                    'detail_icwc_title': 'ICWC Operations Center',
+                    'detail_icwc_desc': 'The ICWC operational desk coordinates annual naming, warnings, eyewall replacements, tornado reports, storm-surge guidance, and post-season name-retirement review. Open the <strong>ICWC</strong> button after selecting a track.',
                     'icwc_graphic': 'Warning Graphic',
-                    'icwc_graphic_desc': 'Standard operational map showing past track, forecast cone, wind radii, and key city impacts.',
+                    'icwc_graphic_desc': 'Operational map showing the past track, forecast cone, wind radii, storm-surge envelope, tornado reports, and key impacts.',
                     'icwc_prob': 'Wind Speed Probability',
                     'icwc_prob_desc': 'Showing the cumulative probability of 34kt (Tropical Storm) or 64kt (Typhoon) winds at any location over the next 72 hours.',
-                    'icwc_station': 'Station Observations',
-                    'icwc_station_desc': 'Retrieves historical telemetry logs for a specific time step. Visualizes localized wind barbs, MSLP trends, and weather conditions relative to the storm position.'
+                    'icwc_station': 'Hazard Coordination Desk',
+                    'icwc_station_desc': 'Combines observation-post telemetry with tornado reports, coastal surge estimates, eyewall-replacement cycles, and retirement-review status.'
                 },
                 'CN': {
                     'config': '系统配置',

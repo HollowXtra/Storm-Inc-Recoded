@@ -59,6 +59,56 @@ export const NAME_LISTS = {
     ]
 };
 
+// Annual naming metadata. The existing basin arrays remain the source of names,
+// while these helpers add the A/B/C sequence and season year used by products.
+export const RETIRED_STORM_NAMES = {
+    WPAC: ['Haiyan', 'Mangkhut', 'Yutu'],
+    EPAC: ['Patricia', 'Otis'],
+    NATL: ['Katrina', 'Harvey', 'Irma', 'Maria', 'Dorian'],
+    NIO: ['Amphan', 'Tauktae'],
+    SIO: ['Idai', 'Kenneth'],
+    SHEM: ['Pam', 'Winston'],
+    SATL: []
+};
+
+export function getSeasonNameList(basin = 'WPAC', year = new Date().getFullYear()) {
+    const list = NAME_LISTS[basin] || NAME_LISTS.WPAC;
+    // Copy the array so a product cannot mutate the canonical list. The year is
+    // intentionally metadata rather than a random rotation: a replay remains
+    // reproducible while the advisory still identifies its season.
+    return [...list];
+}
+
+export function isRetiredStormName(name, basin = 'WPAC') {
+    if (!name) return false;
+    const retired = RETIRED_STORM_NAMES[basin] || [];
+    return retired.some(item => item.toLowerCase() === String(name).toLowerCase());
+}
+
+export function getStormNameMeta(basin = 'WPAC', index = 0, year = new Date().getFullYear()) {
+    const list = getSeasonNameList(basin, year);
+    const safeIndex = Math.max(0, Number.isFinite(index) ? Math.floor(index) : 0) % list.length;
+    const letter = String.fromCharCode(65 + (safeIndex % 26));
+    const name = list[safeIndex];
+    return {
+        name,
+        letter,
+        index: safeIndex,
+        year,
+        designation: `${year}-${letter}`,
+        retired: isRetiredStormName(name, basin)
+    };
+}
+
+export function getNextStormNameMeta(basin = 'WPAC', index = 0, year = new Date().getFullYear()) {
+    const list = getSeasonNameList(basin, year);
+    for (let offset = 0; offset < list.length; offset++) {
+        const meta = getStormNameMeta(basin, index + offset, year);
+        if (!meta.retired) return meta;
+    }
+    return getStormNameMeta(basin, index, year);
+}
+
 const NOISE_CONFIG = {
     seed: 12345.67, // 随机种子
     baseScale: 25,  // [关键] 基底噪声的尺度（越大越平滑），建议 20-40
