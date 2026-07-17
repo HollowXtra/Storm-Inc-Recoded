@@ -12,10 +12,10 @@ A vibe project using frontier LLMs, NOT CAREFULLY REVIEWED, so there might be un
 - **Wind Data Grabber** - Fetches real wind data
 
 ## Guide
-Go to **https://enceladuscat.github.io** to run the html.
+Go to **https://hollowxtra.github.io/Storm-Inc-Recoded/** to run the site.
 
 ## GitHub Pages
-This project is hosted on GitHub Pages at: https://hollowxtra.github.io/Storm-Inc-Recoded
+This project is hosted on GitHub Pages at: https://hollowxtra.github.io/Storm-Inc-Recoded/
 
 ## Model
 The file 'model.onnx' is the AI-IR Tropical Cyclone Intensity Identifier model.
