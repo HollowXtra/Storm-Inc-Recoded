@@ -403,17 +403,23 @@
         <p id="map-info-movement" class="text-slate-300 pointer-events-none"></p>
     </div>
 
-    <!-- [新增] 警告和观察面板 -->
-    <div id="warning-panel" class="hidden fixed top-24 right-6 w-80 bg-black/80 backdrop-blur-md border border-white/20 shadow-2xl z-50 rounded-lg overflow-hidden">
-        <div class="bg-red-900/80 px-4 py-2 border-b border-red-500/50 flex items-center gap-2">
-            <i class="fa-solid fa-tower-broadcast text-red-400"></i>
-            <div>
-                <h3 class="text-xs font-bold text-red-300 uppercase tracking-widest">ICWC Warning & Hazard Desk</h3>
-                <div id="warning-meta" class="text-[8px] text-red-200/60 font-mono mt-0.5">AWAITING ADVISORY</div>
+    <!-- NHC-style public advisory panel -->
+    <div id="warning-panel" class="hidden fixed top-24 right-4 md:right-6 w-[92vw] max-w-md bg-slate-100 text-slate-900 border border-slate-700 shadow-2xl z-50 rounded-sm overflow-hidden">
+        <div class="bg-[#0b2a4a] text-white px-4 py-3 border-b-4 border-[#d71920] flex items-start gap-3">
+            <i class="fa-solid fa-tower-broadcast text-[#f5c542] mt-1"></i>
+            <div class="min-w-0 flex-1">
+                <div id="warning-office" class="text-[8px] text-slate-300 font-bold tracking-[0.18em] uppercase">ICWC • INDEPENDENT CYCLONE WARNING CENTER</div>
+                <h3 id="warning-title" class="text-sm font-black uppercase tracking-wide mt-1">TROPICAL CYCLONE PUBLIC ADVISORY</h3>
+                <div id="warning-meta" class="text-[8px] text-slate-300 font-mono mt-1">AWAITING ADVISORY</div>
             </div>
+            <div id="warning-advisory-number" class="text-right text-[9px] font-black leading-tight whitespace-nowrap">ADVISORY<br>--</div>
         </div>
-        <div id="warning-list" class="p-3 space-y-2 max-h-80 overflow-y-auto no-scrollbar">
-            <!-- 警告项将动态插入这里 -->
+        <div id="warning-headline" class="px-4 py-2 bg-[#d71920] text-white text-[10px] font-black uppercase tracking-wide">MONITORING</div>
+        <div id="warning-list" class="p-3 space-y-3 max-h-[calc(100vh-13rem)] overflow-y-auto no-scrollbar">
+            <!-- Public advisory sections are inserted here. -->
+        </div>
+        <div class="px-4 py-2 bg-slate-200 border-t border-slate-300 text-[8px] leading-relaxed text-slate-500 font-mono uppercase">
+            SIMULATOR PRODUCT • NOT A REAL-WORLD WARNING • FOLLOW LOCAL AUTHORITIES FOR ACTIONS
         </div>
     </div>
 

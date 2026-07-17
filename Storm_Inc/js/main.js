@@ -813,95 +813,190 @@ world: null,
         
         ctx.restore();
     }
-    // --- UI更新函数 ---
-    // ICWC-style hazard products: each item has a type, severity, valid time,
-    // and an explicit source so the panel reads like an operational advisory.
-    function updateWarningPanel() {
-        const warningPanel = document.getElementById('warning-panel');
-        const warningList = document.getElementById('warning-list');
-        const warningMeta = document.getElementById('warning-meta');
-        if (!warningPanel || !warningList || !state.cyclone || !state.cyclone.track || state.cyclone.track.length === 0) {
-            if (warningPanel) warningPanel.classList.add('hidden');
-            return;
-        }
-
-        const cyclone = state.cyclone;
-        const warnings = [];
-        const stormName = getStormDisplayName(cyclone, String(state.simulationCount).padStart(2, '0'));
-        const validDate = getSimulationDate(cyclone, cyclone.age || 0);
-        const validText = `${String(validDate.getUTCMonth() + 1).padStart(2, '0')}/${String(validDate.getUTCDate()).padStart(2, '0')} ${String(validDate.getUTCHours()).padStart(2, '0')}Z`;
-        const addWarning = (type, level, title, message, icon, color) => warnings.push({ type, level, title, message, icon, color });
-
-        if (cyclone.intensity >= 137) {
-            addWarning('warning', 'extreme', 'CATEGORY 5 WIND WARNING', `${stormName}: catastrophic winds ongoing at ${Math.round(cyclone.intensity)} kt.`, 'fa-skull-crossbones', 'text-purple-400');
-        } else if (cyclone.intensity >= 96) {
-            addWarning('warning', 'major', 'MAJOR HURRICANE WARNING', `${stormName}: major-hurricane force winds ongoing at ${Math.round(cyclone.intensity)} kt.`, 'fa-triangle-exclamation', 'text-red-400');
-        } else if (cyclone.intensity >= 64) {
-            addWarning('warning', 'warning', 'HURRICANE-FORCE WIND WARNING', `${stormName}: hurricane-force winds are present within the circulation.`, 'fa-wind', 'text-orange-400');
-        } else if (cyclone.intensity >= 34) {
-            addWarning('watch', 'watch', 'TROPICAL STORM WARNING', `${stormName}: tropical-storm-force winds are ongoing at ${Math.round(cyclone.intensity)} kt.`, 'fa-eye', 'text-yellow-400');
-        } else if (cyclone.intensity >= 24) {
-            addWarning('watch', 'watch', 'TROPICAL CYCLONE WATCH', `${stormName}: organized low-level circulation may strengthen during the next 24 hours.`, 'fa-binoculars', 'text-cyan-400');
-        }
-
-        if (cyclone.isLand || cyclone.isNearLand) {
-            addWarning('warning', 'land', 'LAND INTERACTION / LANDFALL', 'The circulation is over or close to land; destructive winds and rapid weakening are possible.', 'fa-mountain', 'text-amber-400');
-        }
-
-        if (cyclone.eyewallReplacementActive || cyclone.ercState === 'weakening' || cyclone.ercState === 'recovering') {
-            const phase = cyclone.eyewallReplacementPhase === 'rebuilding' ? 'OUTER EYEWALL REBUILDING' : 'EYEWALL REPLACEMENT UNDERWAY';
-            addWarning('advisory', 'erc', phase, `Cycle ${cyclone.eyewallReplacementCount || 1}: intensity may fluctuate while the wind field expands.`, 'fa-bullseye', 'text-fuchsia-400');
-        } else if (cyclone.lastEyewallReplacementAge === cyclone.age) {
-            addWarning('advisory', 'erc', 'EYEWALL REPLACEMENT COMPLETE', 'The inner core has reorganized; renewed strengthening remains possible.', 'fa-arrows-rotate', 'text-fuchsia-300');
-        }
-
-        if ((cyclone.stormSurge || 0) >= 3) {
-            addWarning('warning', 'surge', 'EXTREME STORM SURGE WARNING', `Coastal water rise estimated near ${cyclone.stormSurge.toFixed(1)} m above normal tide.`, 'fa-water', 'text-blue-300');
-        } else if ((cyclone.stormSurge || 0) >= 1) {
-            addWarning('warning', 'surge', 'STORM SURGE WARNING', `Coastal water rise estimated near ${cyclone.stormSurge.toFixed(1)} m above normal tide.`, 'fa-water', 'text-blue-400');
-        }
-
-        const recentTornadoReports = (cyclone.tornadoReports || []).filter(report => (cyclone.age || 0) - report.age <= 12);
-        if (recentTornadoReports.length > 0) {
-            const count = recentTornadoReports.reduce((sum, report) => sum + report.count, 0);
-            addWarning('warning', 'tornado', 'TORNADOES REPORTED', `${count} tornado report${count === 1 ? '' : 's'} in the latest 12 hours; shelter immediately if threatened.`, 'fa-tornado', 'text-red-300');
-        } else if ((cyclone.tornadoRisk || 0) >= 0.45) {
-            addWarning('watch', 'tornado', 'TORNADO WATCH', `Tornado potential is elevated near land (${Math.round(cyclone.tornadoRisk * 100)}% model risk).`, 'fa-tornado', 'text-red-400');
-        }
-
-        if (cyclone.retirementStatus === 'retirement-review') {
-            addWarning('advisory', 'retirement', 'NAME RETIREMENT REVIEW', `${stormName} is flagged for post-season retirement review: ${cyclone.retirementReason}.`, 'fa-box-archive', 'text-violet-300');
-        }
-
-        if (state.siteLon != null && state.siteLat != null) {
-            const dist = calculateDistance(cyclone.lat, cyclone.lon, state.siteLat, state.siteLon);
-            if (dist <= 200 && cyclone.intensity >= 64) {
-                addWarning('warning', 'critical', 'CRITICAL OBSERVATION-POST ALERT', `Direct impact expected at ${state.siteName || 'observation post'} (${Math.round(dist)} km).`, 'fa-house-crack', 'text-red-500');
-            } else if (dist <= 400 && cyclone.intensity >= 34) {
-                addWarning('watch', 'moderate', 'OBSERVATION-POST WATCH', `${stormName} is within ${Math.round(dist)} km of ${state.siteName || 'observation post'}.`, 'fa-binoculars', 'text-yellow-400');
-            }
-        }
-
-        if (warningMeta) {
-            warningMeta.textContent = `ICWC ADVISORY ${cyclone.age ? String(Math.floor(cyclone.age / 3)).padStart(2, '0') : '00'} • VALID ${validText} • ${warnings.length} ACTIVE HAZARD${warnings.length === 1 ? '' : 'S'}`;
-        }
-
-        if (warnings.length > 0) {
-            warningPanel.classList.remove('hidden');
-            warningList.innerHTML = warnings.map(w => `
-                <div class="flex items-start gap-2 p-2 bg-white/5 border-l-2 ${w.level === 'extreme' ? 'border-purple-500' : w.level === 'critical' || w.level === 'tornado' ? 'border-red-500' : w.level === 'major' ? 'border-red-400' : w.level === 'surge' ? 'border-blue-400' : w.level === 'erc' ? 'border-fuchsia-400' : 'border-yellow-500'} rounded">
-                    <i class="fa-solid ${w.icon} ${w.color} mt-0.5"></i>
-                    <div class="flex-1">
-                        <div class="text-[10px] font-bold ${w.color} uppercase tracking-wider">${w.title}</div>
-                        <div class="text-[9px] text-slate-400 mt-0.5">${w.message}</div>
-                        <div class="text-[8px] text-slate-600 mt-1 uppercase">${w.type} • ICWC hazard desk</div>
-                    </div>
-                </div>
-            `).join('');
-        } else {
-            warningPanel.classList.add('hidden');
-        }
+// --- UI更新函数 ---
+// The live desk follows the structure of a public tropical cyclone advisory:
+// a clear issuance header, watches/warnings summary, status, hazards, and
+// key messages. ICWC branding keeps the product distinct from real NHC data.
+function updateWarningPanel() {
+    const warningPanel = document.getElementById('warning-panel');
+    const warningList = document.getElementById('warning-list');
+    const warningMeta = document.getElementById('warning-meta');
+    const warningHeadline = document.getElementById('warning-headline');
+    const warningAdvisoryNumber = document.getElementById('warning-advisory-number');
+    if (!warningPanel || !warningList || !state.cyclone || !state.cyclone.track || state.cyclone.track.length === 0) {
+        if (warningPanel) warningPanel.classList.add('hidden');
+        return;
     }
+
+    const cyclone = state.cyclone;
+    const basin = cyclone.basin || basinSelector.value || 'WPAC';
+    const stormName = getStormDisplayName(cyclone, String(state.simulationCount).padStart(2, '0'));
+    const wind = Math.round(cyclone.intensity || 0);
+    const category = getEnglishCategoryName(wind, cyclone.isExtratropical, cyclone.isSubtropical, basin);
+    const seasonYear = getStormSeasonYear(cyclone);
+    const advisoryNumber = String(Math.max(1, Math.floor((cyclone.age || 0) / 3) + 1)).padStart(2, '0');
+    const validDate = getSimulationDate(cyclone, cyclone.age || 0, cyclone.currentMonth || state.currentMonth);
+    const validDateIsValid = validDate && !Number.isNaN(validDate.getTime());
+    const yearText = String(seasonYear).padStart(4, '0');
+    const validText = validDateIsValid
+        ? `${yearText}-${String(validDate.getUTCMonth() + 1).padStart(2, '0')}-${String(validDate.getUTCDate()).padStart(2, '0')} ${String(validDate.getUTCHours()).padStart(2, '0')}Z`
+        : `${yearText} SEASON / TIME UNAVAILABLE`;
+    const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+    const formatCoordinate = (value, positive, negative) => {
+        const numericValue = Number(value) || 0;
+        return `${Math.abs(numericValue).toFixed(1)}°${numericValue >= 0 ? positive : negative}`;
+    };
+    const positionText = `${formatCoordinate(cyclone.lat, 'N', 'S')} ${formatCoordinate(cyclone.lon, 'E', 'W')}`;
+    const movementText = `${directionToCompass(cyclone.direction || 0)} at ${Math.max(0, Number(cyclone.speed) || 0).toFixed(0)} kt`;
+    const environmentPressure = getPressureAt(cyclone.lon, cyclone.lat, state.pressureSystems || {});
+    const pressure = Math.round(windToPressure(wind, cyclone.circulationSize || 300, basin, environmentPressure));
+    const configuredSite = state.siteName && String(state.siteName).trim();
+    const siteDistance = state.siteLon != null && state.siteLat != null
+        ? calculateDistance(cyclone.lat, cyclone.lon, Number(state.siteLat), Number(state.siteLon))
+        : null;
+    const impactArea = configuredSite
+        ? `${configuredSite} area`
+        : 'coastal areas near the current and forecast track';
+    const areaText = siteDistance != null && siteDistance > 400
+        ? 'current circulation and forecast track corridor'
+        : impactArea;
+    const products = [];
+    const addProduct = (title, status, message, tone = 'red', icon = 'fa-triangle-exclamation') => products.push({ title, status, message, tone, icon });
+    const watchOrWarning = siteDistance != null && siteDistance > 400 ? 'WATCH' : 'WARNING';
+
+    if (wind >= 64) {
+        addProduct(`${basin === 'WPAC' ? 'TYPHOON' : 'HURRICANE'} ${watchOrWarning}`, 'IN EFFECT', `${category} conditions are occurring or expected along the track. Maximum sustained winds are ${wind} kt.`, 'red', 'fa-wind');
+    } else if (wind >= 34) {
+        addProduct(`TROPICAL STORM ${watchOrWarning}`, 'IN EFFECT', `Tropical-storm-force winds are occurring or expected along the track. Maximum sustained winds are ${wind} kt.`, 'orange', 'fa-wind');
+    } else if (wind >= 24) {
+        addProduct('TROPICAL CYCLONE WATCH', 'MONITORING', 'The circulation could strengthen during the next 24 hours. Interests along the track should monitor later advisories.', 'yellow', 'fa-binoculars');
+    }
+
+    if ((cyclone.stormSurge || 0) >= 1) {
+        const surgeType = siteDistance != null && siteDistance > 400 ? 'STORM SURGE WATCH' : 'STORM SURGE WARNING';
+        addProduct(surgeType, 'IN EFFECT', `Life-threatening coastal water rise is possible, with a modeled surge of ${(cyclone.stormSurge || 0).toFixed(1)} m above normal tide.`, 'blue', 'fa-water');
+    }
+
+    const recentTornadoReports = (cyclone.tornadoReports || []).filter(report => (cyclone.age || 0) - report.age <= 12);
+    const recentTornadoCount = recentTornadoReports.reduce((sum, report) => sum + (report.count || 0), 0);
+    if (recentTornadoCount > 0) {
+        const latestReport = recentTornadoReports[recentTornadoReports.length - 1];
+        addProduct('TORNADOES REPORTED', 'SPECIAL WEATHER INFORMATION', `${recentTornadoCount} tornado report${recentTornadoCount === 1 ? '' : 's'} in the past 12 hours; latest modeled report ${latestReport.efRating || 'UNRATED'}.`, 'red', 'fa-tornado');
+    } else if ((cyclone.tornadoRisk || 0) >= 0.45) {
+        addProduct('TORNADO WATCH', 'MONITORING', `Tornado potential is elevated near land (${Math.round(cyclone.tornadoRisk * 100)}% model risk).`, 'red', 'fa-tornado');
+    }
+
+    if (cyclone.isLand || cyclone.isNearLand) {
+        addProduct('LANDFALL / INLAND WIND THREAT', 'ADVISORY', 'The circulation is over or close to land. Destructive winds, rapid weakening, and flash flooding are possible.', 'orange', 'fa-mountain');
+    }
+    if (cyclone.eyewallReplacementActive || cyclone.ercState === 'weakening' || cyclone.ercState === 'recovering') {
+        const phase = cyclone.eyewallReplacementPhase === 'rebuilding' ? 'outer eyewall rebuilding' : 'eyewall replacement underway';
+        addProduct('EYEWALL REPLACEMENT ADVISORY', 'ADVISORY', `Cycle ${cyclone.eyewallReplacementCount || 1}: ${phase}. Wind intensity may fluctuate while the wind field expands.`, 'violet', 'fa-bullseye');
+    }
+
+    const warningCount = products.filter(product => product.status === 'IN EFFECT').length;
+    const watchCount = products.filter(product => product.title.includes('WATCH')).length;
+    const headlineProduct = products.find(product => product.status === 'IN EFFECT') || products.find(product => product.title.includes('WATCH'));
+    const headlineText = headlineProduct
+        ? `${headlineProduct.title} ${headlineProduct.status === 'IN EFFECT' ? 'IN EFFECT' : 'ISSUED'} FOR ${areaText}`
+        : `${stormName} IS BEING MONITORED — NO SIMULATED WATCHES OR WARNINGS IN EFFECT`;
+    if (warningHeadline) {
+        warningHeadline.className = `px-4 py-2 text-[10px] font-black uppercase tracking-wide ${warningCount > 0 ? 'bg-[#d71920] text-white' : watchCount > 0 ? 'bg-[#f5c542] text-slate-900' : 'bg-[#2563eb] text-white'}`;
+        warningHeadline.textContent = headlineText;
+    }
+    if (warningMeta) {
+        warningMeta.textContent = `ADVISORY ${advisoryNumber} • ISSUED ${validText} • NEXT UPDATE IN 3 HOURS • ${products.length} PRODUCT${products.length === 1 ? '' : 'S'} ACTIVE`;
+    }
+    if (warningAdvisoryNumber) {
+        warningAdvisoryNumber.innerHTML = `ADVISORY<br>${advisoryNumber}`;
+    }
+
+    const toneStyles = {
+        red: { border: 'border-red-600', badge: 'bg-red-100 text-red-700', icon: 'text-red-600' },
+        orange: { border: 'border-orange-500', badge: 'bg-orange-100 text-orange-700', icon: 'text-orange-600' },
+        yellow: { border: 'border-yellow-500', badge: 'bg-yellow-100 text-yellow-800', icon: 'text-yellow-700' },
+        blue: { border: 'border-blue-600', badge: 'bg-blue-100 text-blue-700', icon: 'text-blue-600' },
+        violet: { border: 'border-violet-600', badge: 'bg-violet-100 text-violet-700', icon: 'text-violet-600' }
+    };
+    const productMarkup = products.length > 0
+        ? products.map(product => {
+            const style = toneStyles[product.tone] || toneStyles.red;
+            return `
+                <article class="border-l-4 ${style.border} bg-white px-3 py-2 shadow-sm">
+                    <div class="flex items-start gap-2">
+                        <i class="fa-solid ${product.icon} ${style.icon} mt-0.5"></i>
+                        <div class="min-w-0 flex-1">
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <div class="text-[10px] font-black uppercase tracking-wide">${escapeHtml(product.title)}</div>
+                                <span class="${style.badge} px-1.5 py-0.5 text-[8px] font-black uppercase">${escapeHtml(product.status)}</span>
+                            </div>
+                            <div class="text-[9px] text-slate-600 mt-1 leading-relaxed">AREA: ${escapeHtml(areaText)}</div>
+                            <div class="text-[9px] text-slate-700 mt-1 leading-relaxed">${escapeHtml(product.message)}</div>
+                        </div>
+                    </div>
+                </article>
+            `;
+        }).join('')
+        : '<div class="bg-white border border-slate-300 px-3 py-3 text-[9px] text-slate-600">There are currently no simulated watches or warnings in effect. Continue to monitor the next advisory.</div>';
+
+    const statusMarkup = `
+        <div class="grid grid-cols-2 gap-px bg-slate-300 border border-slate-300">
+            <div class="bg-white px-3 py-2"><div class="text-[8px] text-slate-500 font-bold uppercase">Position</div><div class="text-[11px] font-black mt-1">${positionText}</div></div>
+            <div class="bg-white px-3 py-2"><div class="text-[8px] text-slate-500 font-bold uppercase">Movement</div><div class="text-[11px] font-black mt-1">${escapeHtml(movementText)}</div></div>
+            <div class="bg-white px-3 py-2"><div class="text-[8px] text-slate-500 font-bold uppercase">Maximum Winds</div><div class="text-[11px] font-black mt-1">${wind} KT</div></div>
+            <div class="bg-white px-3 py-2"><div class="text-[8px] text-slate-500 font-bold uppercase">Minimum Pressure</div><div class="text-[11px] font-black mt-1">${pressure} MB</div></div>
+        </div>
+        <p class="text-[9px] leading-relaxed text-slate-700 mt-2"><strong>${escapeHtml(stormName)}</strong> is a simulated ${escapeHtml(category.toLowerCase())} in the ${escapeHtml(basin)} basin. The center is near ${positionText}; maximum sustained winds are ${wind} kt with higher gusts.</p>
+    `;
+
+    const hazardRows = [
+        ['WIND', `${category}; maximum sustained winds ${wind} kt. ${cyclone.isLand || cyclone.isNearLand ? 'Wind damage and dangerous gusts are possible inland.' : 'Interests along the track should prepare for changing conditions.'}`],
+        ['STORM SURGE', (cyclone.stormSurge || 0) >= 1 ? `Modeled coastal water rise is ${(cyclone.stormSurge || 0).toFixed(1)} m; peak modeled surge this storm is ${(cyclone.peakStormSurge || cyclone.stormSurge || 0).toFixed(1)} m.` : 'No significant simulated storm-surge signal is currently present.'],
+        ['RAINFALL / FLOODING', 'Heavy rainfall and flash flooding are possible near the circulation, especially where the center crosses land or terrain enhances rainfall.'],
+        ['TORNADOES', recentTornadoCount > 0 ? `${recentTornadoCount} tornado report${recentTornadoCount === 1 ? '' : 's'} recorded in the latest 12-hour window.` : `Tornado risk is ${Math.round((cyclone.tornadoRisk || 0) * 100)}% in the current model state.`]
+    ];
+    if (cyclone.eyewallReplacementActive || cyclone.eyewallReplacementCount > 0) {
+        hazardRows.push(['INNER CORE', `Eyewall replacement cycles recorded: ${cyclone.eyewallReplacementCount || 0}. Current phase: ${(cyclone.eyewallReplacementPhase || cyclone.ercState || 'nominal').toUpperCase()}.`]);
+    }
+    const hazardMarkup = hazardRows.map(([label, message]) => `
+        <div class="border-b border-slate-200 last:border-b-0 py-2 first:pt-0 last:pb-0">
+            <div class="text-[9px] font-black text-slate-700 uppercase">${escapeHtml(label)}</div>
+            <div class="text-[9px] leading-relaxed text-slate-600 mt-0.5">${escapeHtml(message)}</div>
+        </div>
+    `).join('');
+
+    const keyMessages = [
+        `${stormName} is a simulated advisory. Use the track and forecast products to assess exposure in the affected area.`,
+        products.length > 0 ? 'Follow local emergency management guidance and do not wait for conditions to deteriorate before taking protective action.' : 'Conditions remain below the simulator warning thresholds, but rapid changes are possible.',
+        (cyclone.stormSurge || 0) >= 1 ? `Move away from low-lying coastal areas if directed; storm surge can arrive before the center.` : 'Coastal water rise remains below the current simulated warning threshold.',
+        recentTornadoCount > 0 ? 'Tornadoes have been reported in the latest model window. Shelter in a sturdy interior room when threatened.' : 'Continue monitoring for tornado development near land.'
+    ];
+    const keyMessageMarkup = keyMessages.map(message => `<li class="pl-1">${escapeHtml(message)}</li>`).join('');
+    const retirementMarkup = cyclone.retirementStatus === 'retirement-review'
+        ? `<div class="mt-2 border-l-4 border-violet-600 bg-violet-50 px-3 py-2 text-[9px] text-violet-900"><strong>POST-SEASON NAME RETIREMENT REVIEW:</strong> ${escapeHtml(cyclone.retirementReason || 'impact review opened')}</div>`
+        : '';
+
+    warningList.innerHTML = `
+        <section class="bg-slate-200 border border-slate-300">
+            <div class="px-3 py-2 text-[9px] font-black tracking-wide uppercase border-b border-slate-300">Summary of Watches and Warnings in Effect</div>
+            <div class="p-2 space-y-2">${productMarkup}</div>
+        </section>
+        <section class="bg-white border border-slate-300 px-3 py-2">
+            <div class="text-[9px] font-black tracking-wide uppercase border-b border-slate-200 pb-2 mb-2">Current Status</div>
+            ${statusMarkup}
+        </section>
+        <section class="bg-white border border-slate-300 px-3 py-2">
+            <div class="text-[9px] font-black tracking-wide uppercase border-b border-slate-200 pb-2 mb-2">Hazards Affecting Land</div>
+            ${hazardMarkup}
+        </section>
+        <section class="bg-[#e8f1fb] border border-blue-200 px-3 py-2">
+            <div class="text-[9px] font-black tracking-wide uppercase border-b border-blue-200 pb-2 mb-2 text-[#0b2a4a]">Key Messages</div>
+            <ul class="list-disc pl-4 space-y-1 text-[9px] leading-relaxed text-slate-700">${keyMessageMarkup}</ul>
+        </section>
+        ${retirementMarkup}
+    `;
+    warningPanel.classList.remove('hidden');
+}
 
     // [新增] 显示突发新闻 Banner
     function triggerNewsBanner(headlineHTML, subText, currentAge, currentMonth, type = 'ORANGE') {
