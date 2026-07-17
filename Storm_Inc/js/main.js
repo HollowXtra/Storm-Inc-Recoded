@@ -2329,60 +2329,48 @@ if (yearSelector) yearSelector.disabled = true;
         playClick();
         jtwcModal.classList.remove('hidden');
         
-        // --- 1. 构建 Tab 界面结构 (增加 64KT 按钮) ---
+        // --- 1. Build the ICWC product workspace ---
         jtwcOutput.innerHTML = `
-            <div class="flex h-[600px] w-full"> 
-                <div class="w-40 flex-shrink-0 bg-gray-100 border-r border-gray-300 p-2 flex flex-col gap-2">
-                    <div class="text-xs font-bold text-gray-500 mb-2 px-2">ICWC PRODUCTS</div>
-
-                    <button id="jtwc-tab-advisory" class="text-left px-3 py-2 text-sm font-bold bg-white border border-gray-300 rounded shadow-sm text-cyan-700 transition-all hover:bg-gray-50">
-                        ADVISORY BULLETIN
-                    </button>
-
-                    <button id="jtwc-tab-hazards" class="text-left px-3 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded transition-colors">
-                        HAZARDS & RETIREMENT
-                    </button>
-                    
-                    <button id="jtwc-tab-graphic" class="text-left px-3 py-2 text-sm font-bold bg-white border border-gray-300 rounded shadow-sm text-cyan-700 transition-all hover:bg-gray-50">
-                        WARNING GRAPHIC
-                    </button>
-                    
-                    <button id="jtwc-tab-prob34" class="text-left px-3 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded transition-colors">
-                        WIND PROB 34KT
-                    </button>
-
-                    <button id="jtwc-tab-prob64" class="text-left px-3 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded transition-colors">
-                        WIND PROB 64KT
-                    </button>
-
-                    <button id="jtwc-tab-satellite" class="text-left px-3 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded transition-colors">
-                    SAT IMAGERY
-                    </button>
-
-                    <button id="jtwc-tab-phase" class="text-left px-3 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded transition-colors">
-                        PHASE SPACE
-                    </button>
-
-                    <div class="h-px bg-gray-300 my-1"></div>
-                    <button id="jtwc-tab-station" class="text-left px-3 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded transition-colors flex items-center gap-2">
-                        STATION OBS
-                    </button>
-
-                    <button id="jtwc-tab-synoptic" class="text-left px-3 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded transition-colors flex items-center gap-2">
-                        SYNOPTIC CHART
-                    </button>
-                </div>
-                
-                <div id="jtwc-content-area" class="flex-1 bg-gray-50 flex items-center justify-center overflow-auto p-4 relative">
-                    <div id="jtwc-loading" class="hidden absolute inset-0 flex items-center justify-center bg-white/80 z-10 text-cyan-600 font-bold pointer-events-none">
-                        GENERATING...
+            <div class="flex h-[min(82vh,720px)] min-h-[540px] w-full bg-slate-100">
+                <aside class="w-52 flex-shrink-0 bg-slate-950 text-white border-r border-slate-800 p-3 flex flex-col">
+                    <div class="px-2 pb-4 border-b border-slate-800">
+                        <div class="text-[9px] font-black tracking-[0.2em] text-red-300">ICWC PRODUCTS</div>
+                        <div class="text-[9px] text-slate-500 mt-1 uppercase tracking-wide">Operational product suite</div>
                     </div>
-                </div>
+                    <nav class="flex-1 overflow-y-auto py-3 space-y-1 custom-scrollbar">
+                        <div class="px-2 pb-1 text-[8px] font-black tracking-[0.18em] text-slate-500 uppercase">Public advisories</div>
+                        <button id="jtwc-tab-advisory" class="icwc-product-tab w-full text-left px-3 py-2.5 text-[10px] font-black tracking-wide rounded border border-transparent text-slate-300 hover:bg-white/10 hover:text-white transition-all">ADVISORY BULLETIN</button>
+                        <button id="jtwc-tab-public-advisory" class="icwc-product-tab w-full text-left px-3 py-2.5 text-[10px] font-black tracking-wide rounded border border-transparent text-slate-300 hover:bg-white/10 hover:text-white transition-all flex items-center justify-between gap-2"><span>PUBLIC ADVISORY</span><span class="text-[7px] bg-red-500/20 text-red-300 px-1.5 py-0.5 rounded">NEW</span></button>
+                        <button id="jtwc-tab-hazards" class="icwc-product-tab w-full text-left px-3 py-2.5 text-[10px] font-black tracking-wide rounded border border-transparent text-slate-300 hover:bg-white/10 hover:text-white transition-all">HAZARDS & RETIREMENT</button>
+
+                        <div class="px-2 pt-4 pb-1 text-[8px] font-black tracking-[0.18em] text-slate-500 uppercase">Analysis</div>
+                        <button id="jtwc-tab-graphic" class="icwc-product-tab w-full text-left px-3 py-2.5 text-[10px] font-black tracking-wide rounded border border-transparent text-slate-300 hover:bg-white/10 hover:text-white transition-all">WARNING GRAPHIC</button>
+                        <button id="jtwc-tab-prob34" class="icwc-product-tab w-full text-left px-3 py-2.5 text-[10px] font-black tracking-wide rounded border border-transparent text-slate-300 hover:bg-white/10 hover:text-white transition-all">WIND PROBABILITY <span class="text-slate-500">34KT</span></button>
+                        <button id="jtwc-tab-prob64" class="icwc-product-tab w-full text-left px-3 py-2.5 text-[10px] font-black tracking-wide rounded border border-transparent text-slate-300 hover:bg-white/10 hover:text-white transition-all">WIND PROBABILITY <span class="text-slate-500">64KT</span></button>
+                        <button id="jtwc-tab-satellite" class="icwc-product-tab w-full text-left px-3 py-2.5 text-[10px] font-black tracking-wide rounded border border-transparent text-slate-300 hover:bg-white/10 hover:text-white transition-all">SATELLITE IMAGERY</button>
+                        <button id="jtwc-tab-phase" class="icwc-product-tab w-full text-left px-3 py-2.5 text-[10px] font-black tracking-wide rounded border border-transparent text-slate-300 hover:bg-white/10 hover:text-white transition-all">PHASE SPACE</button>
+
+                        <div class="px-2 pt-4 pb-1 text-[8px] font-black tracking-[0.18em] text-slate-500 uppercase">Observation</div>
+                        <button id="jtwc-tab-station" class="icwc-product-tab w-full text-left px-3 py-2.5 text-[10px] font-black tracking-wide rounded border border-transparent text-slate-300 hover:bg-white/10 hover:text-white transition-all">STATION OBS</button>
+                        <button id="jtwc-tab-synoptic" class="icwc-product-tab w-full text-left px-3 py-2.5 text-[10px] font-black tracking-wide rounded border border-transparent text-slate-300 hover:bg-white/10 hover:text-white transition-all">SYNOPTIC CHART</button>
+                    </nav>
+                    <div class="pt-3 border-t border-slate-800 text-[8px] text-slate-500 leading-relaxed">SIMULATOR PRODUCTS<br><span class="text-slate-600">NOT REAL-WORLD FORECASTS</span></div>
+                </aside>
+                <main class="flex-1 min-w-0 flex flex-col bg-slate-100">
+                    <div class="h-11 flex-shrink-0 bg-white border-b border-slate-300 px-4 flex items-center justify-between">
+                        <div class="text-[9px] font-black tracking-[0.18em] text-slate-500 uppercase">Independent Cyclone Warning Center</div>
+                        <div class="text-[9px] font-mono text-slate-400">LIVE SIMULATION PRODUCT</div>
+                    </div>
+                    <div id="jtwc-content-area" class="flex-1 min-h-0 flex items-start justify-center overflow-auto p-4 md:p-6 relative">
+                        <div id="jtwc-loading" class="hidden absolute inset-0 flex items-center justify-center bg-white/80 z-10 text-cyan-600 font-bold pointer-events-none">GENERATING...</div>
+                    </div>
+                </main>
             </div>
         `;
 
         const contentArea = document.getElementById('jtwc-content-area');
         const tabAdvisory = document.getElementById('jtwc-tab-advisory');
+        const tabPublicAdvisory = document.getElementById('jtwc-tab-public-advisory');
         const tabHazards = document.getElementById('jtwc-tab-hazards');
         const tabGraphic = document.getElementById('jtwc-tab-graphic');
         const tabProb34 = document.getElementById('jtwc-tab-prob34');
@@ -2402,16 +2390,129 @@ if (yearSelector) yearSelector.disabled = true;
         };
 
         const updateTabStyles = (activeTab) => {
-            [tabAdvisory, tabHazards, tabGraphic, tabProb34, tabProb64, tabSatellite, tabPhase, tabStation, tabSynoptic].forEach(tab => {
+            [tabAdvisory, tabPublicAdvisory, tabHazards, tabGraphic, tabProb34, tabProb64, tabSatellite, tabPhase, tabStation, tabSynoptic].forEach(tab => {
                 if (tab === activeTab) {
-                    tab.className = "text-left px-3 py-2 text-sm font-bold bg-white border border-gray-300 rounded shadow-sm text-cyan-700 transition-all";
+                    tab.className = "icwc-product-tab w-full text-left px-3 py-2.5 text-[10px] font-black tracking-wide rounded border border-cyan-400/60 bg-cyan-400/10 text-cyan-300 shadow-sm transition-all";
                 } else {
-                    tab.className = "text-left px-3 py-2 text-sm font-bold text-gray-600 hover:bg-gray-200 rounded transition-colors";
+                    tab.className = "icwc-product-tab w-full text-left px-3 py-2.5 text-[10px] font-black tracking-wide rounded border border-transparent text-slate-300 hover:bg-white/10 hover:text-white transition-all";
                 }
             });
         };
 
-        // --- 2. 定义渲染函数 ---
+        // --- 2. Product renderers ---
+
+        const showPublicAdvisory = () => {
+            updateTabStyles(tabPublicAdvisory);
+            currentMode = 'PUBLIC_ADVISORY';
+            currentCanvas = null;
+
+            const point = targetCyclone.track[renderIndex] || targetCyclone.track[targetCyclone.track.length - 1] || [];
+            const targetAge = renderIndex * 3;
+            const basin = targetCyclone.basin || basinSelector.value || 'WPAC';
+            const wind = Math.round(point[2] || targetCyclone.intensity || 0);
+            const pressure = Math.round(point[10] || windToPressure(wind, targetCyclone.circulationSize || 300, basin));
+            const category = getEnglishCategoryName(wind, point[4] || targetCyclone.isExtratropical, point[6] || targetCyclone.isSubtropical, basin);
+            const name = getStormDisplayName(targetCyclone, String(state.simulationCount).padStart(2, '0'));
+            const seasonYear = targetCyclone.seasonYear || state.seasonYear;
+            const advisoryNumber = String(Math.max(1, renderIndex + 1)).padStart(2, '0');
+            const valid = getSimulationDate(targetCyclone, targetAge, targetCyclone.currentMonth || state.currentMonth);
+            const validText = valid && !Number.isNaN(valid.getTime())
+                ? `${String(seasonYear).padStart(4, '0')}-${String(valid.getUTCMonth() + 1).padStart(2, '0')}-${String(valid.getUTCDate()).padStart(2, '0')} ${String(valid.getUTCHours()).padStart(2, '0')}Z`
+                : `${String(seasonYear).padStart(4, '0')} SEASON / TIME UNAVAILABLE`;
+            const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+            const formatCoordinate = (value, positive, negative) => {
+                const numericValue = Number(value) || 0;
+                return `${Math.abs(numericValue).toFixed(1)}°${numericValue >= 0 ? positive : negative}`;
+            };
+            const latitude = point[1] ?? targetCyclone.lat ?? 0;
+            const longitude = point[0] ?? targetCyclone.lon ?? 0;
+            const position = `${formatCoordinate(latitude, 'N', 'S')} ${formatCoordinate(longitude, 'E', 'W')}`;
+            const area = state.siteName && String(state.siteName).trim() ? `${String(state.siteName).trim()} area` : 'current and forecast track corridor';
+            const surge = Number(targetCyclone.stormSurge) || 0;
+            const peakSurge = Number(targetCyclone.peakStormSurge) || surge;
+            const reports = (targetCyclone.tornadoReports || []).filter(report => targetAge - report.age >= 0 && targetAge - report.age <= 12);
+            const recentTornadoes = reports.reduce((sum, report) => sum + (report.count || 0), 0);
+            const totalTornadoes = targetCyclone.tornadoesReported || 0;
+            const products = [];
+            const addProduct = (title, status, message, tone = 'red', icon = 'fa-triangle-exclamation') => products.push({ title, status, message, tone, icon });
+
+            if (wind >= 64) {
+                addProduct(`${basin === 'WPAC' ? 'TYPHOON' : 'HURRICANE'} WARNING`, 'IN EFFECT', `${category} conditions are occurring or expected along the track. Maximum sustained winds are ${wind} kt.`, 'red', 'fa-wind');
+            } else if (wind >= 34) {
+                addProduct('TROPICAL STORM WARNING', 'IN EFFECT', `Tropical-storm-force winds are occurring or expected along the track. Maximum sustained winds are ${wind} kt.`, 'orange', 'fa-wind');
+            } else if (wind >= 24) {
+                addProduct('TROPICAL CYCLONE WATCH', 'MONITORING', 'The circulation could strengthen during the next 24 hours. Interests along the track should monitor later advisories.', 'yellow', 'fa-binoculars');
+            }
+            if (surge >= 1) {
+                addProduct('STORM SURGE WARNING', 'IN EFFECT', `Life-threatening coastal water rise is possible, with a modeled surge of ${surge.toFixed(1)} m above normal tide.`, 'blue', 'fa-water');
+            }
+            if (recentTornadoes > 0) {
+                const latestReport = reports[reports.length - 1];
+                addProduct('TORNADOES REPORTED', 'SPECIAL WEATHER INFORMATION', `${recentTornadoes} tornado report${recentTornadoes === 1 ? '' : 's'} in the latest 12-hour window; latest report ${latestReport.efRating || 'UNRATED'}.`, 'red', 'fa-tornado');
+            } else if ((targetCyclone.tornadoRisk || 0) >= 0.45) {
+                addProduct('TORNADO WATCH', 'MONITORING', `Tornado potential is elevated near land (${Math.round(targetCyclone.tornadoRisk * 100)}% model risk).`, 'red', 'fa-tornado');
+            }
+            if (targetCyclone.isLand || targetCyclone.isNearLand) {
+                addProduct('LANDFALL / INLAND WIND THREAT', 'ADVISORY', 'The circulation is over or close to land. Destructive winds, rapid weakening, and flash flooding are possible.', 'orange', 'fa-mountain');
+            }
+            if (targetCyclone.eyewallReplacementActive || targetCyclone.ercState === 'weakening' || targetCyclone.ercState === 'recovering' || targetCyclone.eyewallReplacementCount > 0) {
+                addProduct('EYEWALL REPLACEMENT ADVISORY', 'ADVISORY', `Cycle ${targetCyclone.eyewallReplacementCount || 0}: ${(targetCyclone.eyewallReplacementPhase || targetCyclone.ercState || 'nominal').replaceAll('-', ' ')}. Wind intensity may fluctuate while the wind field reorganizes.`, 'violet', 'fa-bullseye');
+            }
+
+            const headlineProduct = products.find(product => product.title.includes('WARNING')) || products.find(product => product.title.includes('WATCH')) || products[0];
+            const headline = headlineProduct
+                ? `${headlineProduct.title} ${headlineProduct.status === 'IN EFFECT' ? 'IN EFFECT' : 'ISSUED'} FOR ${area}`
+                : `${name} IS BEING MONITORED — NO SIMULATED WATCHES OR WARNINGS IN EFFECT`;
+            const toneStyles = {
+                red: { border: 'border-red-600', badge: 'bg-red-100 text-red-700', icon: 'text-red-600' },
+                orange: { border: 'border-orange-500', badge: 'bg-orange-100 text-orange-700', icon: 'text-orange-600' },
+                yellow: { border: 'border-yellow-500', badge: 'bg-yellow-100 text-yellow-800', icon: 'text-yellow-700' },
+                blue: { border: 'border-blue-600', badge: 'bg-blue-100 text-blue-700', icon: 'text-blue-600' },
+                violet: { border: 'border-violet-600', badge: 'bg-violet-100 text-violet-700', icon: 'text-violet-600' }
+            };
+            const productMarkup = products.length > 0 ? products.map(product => {
+                const style = toneStyles[product.tone] || toneStyles.red;
+                return `<article class="border-l-4 ${style.border} bg-white px-4 py-3 shadow-sm"><div class="flex items-start gap-3"><i class="fa-solid ${product.icon} ${style.icon} mt-0.5"></i><div class="min-w-0 flex-1"><div class="flex flex-wrap items-center justify-between gap-2"><div class="text-[10px] font-black uppercase tracking-wide">${escapeHtml(product.title)}</div><span class="${style.badge} px-2 py-0.5 text-[8px] font-black uppercase">${escapeHtml(product.status)}</span></div><div class="text-[9px] text-slate-500 mt-1 uppercase">Area: ${escapeHtml(area)}</div><div class="text-[9px] text-slate-700 mt-1 leading-relaxed">${escapeHtml(product.message)}</div></div></div></article>`;
+            }).join('') : '<div class="bg-white border border-slate-300 px-4 py-4 text-[10px] text-slate-600">There are currently no simulated watches or warnings in effect. Continue monitoring subsequent advisories.</div>';
+            const hazardRows = [
+                ['WIND', `${category}; maximum sustained winds ${wind} kt. ${targetCyclone.isLand || targetCyclone.isNearLand ? 'Wind damage and dangerous gusts are possible inland.' : 'Interests along the track should prepare for changing conditions.'}`],
+                ['STORM SURGE', surge >= 1 ? `Modeled coastal water rise is ${surge.toFixed(1)} m; peak modeled surge this storm is ${peakSurge.toFixed(1)} m.` : 'No significant simulated storm-surge signal is currently present.'],
+                ['RAINFALL / FLOODING', 'Heavy rainfall and flash flooding are possible near the circulation, especially where the center crosses land or terrain enhances rainfall.'],
+                ['TORNADOES', recentTornadoes > 0 ? `${recentTornadoes} tornado report${recentTornadoes === 1 ? '' : 's'} recorded in this 12-hour advisory window; ${totalTornadoes} total reported this storm.` : `Tornado risk is ${Math.round((targetCyclone.tornadoRisk || 0) * 100)}% in the current model state.`]
+            ];
+            if (targetCyclone.eyewallReplacementCount > 0) {
+                hazardRows.push(['INNER CORE', `Eyewall replacement cycles recorded: ${targetCyclone.eyewallReplacementCount}. Current phase: ${(targetCyclone.eyewallReplacementPhase || targetCyclone.ercState || 'nominal').toUpperCase()}.`]);
+            }
+            const hazardMarkup = hazardRows.map(([label, message]) => `<div class="border-b border-slate-200 last:border-b-0 py-2.5 first:pt-0 last:pb-0"><div class="text-[9px] font-black text-slate-700 uppercase">${escapeHtml(label)}</div><div class="text-[10px] leading-relaxed text-slate-600 mt-1">${escapeHtml(message)}</div></div>`).join('');
+            const keyMessages = [
+                `${name} is a simulated advisory. Use the track and forecast products to assess exposure in the affected area.`,
+                products.length > 0 ? 'Follow local emergency management guidance and take protective action before conditions deteriorate.' : 'Conditions remain below the simulator warning thresholds, but rapid changes are possible.',
+                surge >= 1 ? 'Move away from low-lying coastal areas if directed; storm surge can arrive before the center.' : 'Coastal water rise remains below the current simulated warning threshold.',
+                recentTornadoes > 0 ? 'Tornadoes have been reported in the latest model window. Shelter in a sturdy interior room when threatened.' : 'Continue monitoring for tornado development near land.'
+            ];
+            const keyMessagesMarkup = keyMessages.map(message => `<li class="pl-1">${escapeHtml(message)}</li>`).join('');
+            const retirementMarkup = targetCyclone.retirementStatus === 'retirement-review' ? `<div class="mt-3 border-l-4 border-violet-600 bg-violet-50 px-4 py-3 text-[10px] text-violet-900"><strong>POST-SEASON NAME RETIREMENT REVIEW:</strong> ${escapeHtml(targetCyclone.retirementReason || 'impact review opened')}</div>` : '';
+
+            contentArea.innerHTML = `
+                <div class="w-full max-w-4xl bg-slate-50 text-slate-900 border border-slate-300 shadow-sm font-mono">
+                    <header class="bg-[#0b2a4a] text-white border-b-4 border-[#d71920] px-5 py-5">
+                        <div class="flex flex-wrap items-start justify-between gap-4">
+                            <div><div class="text-[9px] text-slate-300 font-black tracking-[0.2em]">ICWC • INDEPENDENT CYCLONE WARNING CENTER</div><h2 class="text-2xl md:text-3xl font-black uppercase mt-2">${escapeHtml(name)}</h2><div class="text-[10px] text-slate-300 mt-2 uppercase">${escapeHtml(seasonYear)} SEASON • ${escapeHtml(basin)} • TROPICAL CYCLONE PUBLIC ADVISORY</div></div>
+                            <div class="text-right text-[10px] font-black"><div>ADVISORY</div><div class="text-[#f5c542] text-2xl leading-none mt-1">${advisoryNumber}</div><div class="text-[9px] text-slate-400 mt-2">VALID ${escapeHtml(validText)}</div></div>
+                        </div>
+                        <div class="mt-5 bg-[#d71920] px-3 py-2 text-[10px] font-black uppercase tracking-wide">${escapeHtml(headline)}</div>
+                    </header>
+                    <div class="p-4 md:p-5 space-y-4">
+                        <section><div class="text-[10px] font-black tracking-wide uppercase border-b border-slate-300 pb-2 mb-2">Summary of Watches and Warnings in Effect</div><div class="space-y-2">${productMarkup}</div></section>
+                        <section class="bg-white border border-slate-300 p-4"><div class="text-[10px] font-black tracking-wide uppercase border-b border-slate-200 pb-2 mb-3">Current Status</div><div class="grid grid-cols-2 md:grid-cols-4 gap-px bg-slate-300 border border-slate-300"><div class="bg-white px-3 py-2"><div class="text-[8px] text-slate-500 font-bold uppercase">Position</div><div class="text-[11px] font-black mt-1">${position}</div></div><div class="bg-white px-3 py-2"><div class="text-[8px] text-slate-500 font-bold uppercase">Movement</div><div class="text-[11px] font-black mt-1">${directionToCompass(targetCyclone.direction || 0)} at ${Math.max(0, Number(targetCyclone.speed) || 0).toFixed(0)} kt</div></div><div class="bg-white px-3 py-2"><div class="text-[8px] text-slate-500 font-bold uppercase">Maximum Winds</div><div class="text-[11px] font-black mt-1">${wind} KT</div></div><div class="bg-white px-3 py-2"><div class="text-[8px] text-slate-500 font-bold uppercase">Minimum Pressure</div><div class="text-[11px] font-black mt-1">${pressure} MB</div></div></div><p class="text-[10px] leading-relaxed text-slate-700 mt-3"><strong>${escapeHtml(name)}</strong> is a simulated ${escapeHtml(category.toLowerCase())} in the ${escapeHtml(basin)} basin. The center is near ${position}; maximum sustained winds are ${wind} kt with higher gusts.</p></section>
+                        <section class="bg-white border border-slate-300 p-4"><div class="text-[10px] font-black tracking-wide uppercase border-b border-slate-200 pb-2 mb-2">Hazards Affecting Land</div>${hazardMarkup}</section>
+                        <section class="bg-[#e8f1fb] border border-blue-200 p-4"><div class="text-[10px] font-black tracking-wide uppercase border-b border-blue-200 pb-2 mb-2 text-[#0b2a4a]">Key Messages</div><ul class="list-disc pl-5 space-y-1.5 text-[10px] leading-relaxed text-slate-700">${keyMessagesMarkup}</ul></section>
+                        ${retirementMarkup}
+                    </div>
+                    <footer class="border-t border-slate-300 bg-slate-200 px-4 py-2 text-[8px] text-slate-500 uppercase">Simulator product • Not a real-world warning • Follow local authorities for actions</footer>
+                </div>
+            `;
+        };
 
         const showAdvisory = () => {
             updateTabStyles(tabAdvisory);
@@ -2948,6 +3049,7 @@ contentArea.innerHTML = `
 
         // --- 3. 绑定事件 ---
         tabAdvisory.onclick = showAdvisory;
+        tabPublicAdvisory.onclick = showPublicAdvisory;
         tabHazards.onclick = showHazards;
         tabGraphic.onclick = showGraphic;
         tabProb34.onclick = () => showProb(34);
@@ -2958,7 +3060,7 @@ contentArea.innerHTML = `
         const saveBtn = document.getElementById('saveJtwcImage');
         saveBtn.onclick = () => {
 
-            if (currentMode === 'ADVISORY' || currentMode === 'HAZARDS') {
+            if (currentMode === 'ADVISORY' || currentMode === 'PUBLIC_ADVISORY' || currentMode === 'HAZARDS') {
                 const blob = new Blob([contentArea.innerText], { type: 'text/plain' });
                 const link = document.createElement('a');
                 link.download = `ICWC_${targetCyclone.name || 'STORM'}_${currentMode}_T${renderIndex * 3}.txt`;
