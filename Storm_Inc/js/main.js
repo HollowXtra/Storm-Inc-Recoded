@@ -219,7 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
         frontalZone: {},
 pathForecasts: [],
 currentMonth: 7,
-seasonYear: yearSelector ? parseInt(yearSelector.value, 10) : new Date().getFullYear(),
+seasonYear: yearSelector && Number.isFinite(parseInt(yearSelector.value, 10)) ? parseInt(yearSelector.value, 10) : new Date().getFullYear(),
 world: null,
         showPressureField: false,
         showHumidityField: false,
@@ -294,8 +294,11 @@ world: null,
     }
 
     function getSimulationDate(cyclone = state.cyclone, age = 0, month = state.currentMonth) {
-        const date = new Date(Date.UTC(getStormSeasonYear(cyclone), month - 1, 1));
-        date.setUTCHours(date.getUTCHours() + age);
+        // setUTCFullYear preserves years 1–99; Date.UTC would reinterpret them as 1901–1999.
+        const date = new Date(0);
+        date.setUTCHours(0, 0, 0, 0);
+        date.setUTCFullYear(getStormSeasonYear(cyclone), month - 1, 1);
+        date.setUTCHours(age);
         return date;
     }
 
@@ -1613,7 +1616,9 @@ document.getElementById('warning-panel').classList.add('hidden');
         pauseButton.innerHTML = '<i class="fa-solid fa-pause text-xs"></i>';
         
         const selectedBasin = basinSelector.value;
-        const selectedYear = yearSelector ? parseInt(yearSelector.value, 10) : new Date().getFullYear();
+        const enteredYear = yearSelector ? parseInt(yearSelector.value, 10) : NaN;
+        const selectedYear = Number.isFinite(enteredYear) && enteredYear >= 1 ? enteredYear : new Date().getFullYear();
+        if (yearSelector) yearSelector.value = String(selectedYear);
         if (state.lastBasin !== selectedBasin || state.lastSeasonYear !== selectedYear) {
             // Annual lists are A/B/C ordered; do not randomize the first name.
             state.nextNameIndex = 0;
