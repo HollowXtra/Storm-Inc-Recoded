@@ -52,7 +52,7 @@ const fragmentShaderSource = `
         vec2 u = f * f * (3.0 - 2.0 * f);
         return mix(a, b, u.x) + (c - a) * u.y * (1.0 - u.x) + (d - b) * u.y * u.x;
     }
-    #define FBM_OCTAVES 5
+    #define FBM_OCTAVES 6
     float fbm(vec2 st) {
         float value = 0.0;
         float amplitude = 0.6;
@@ -169,9 +169,31 @@ const fragmentShaderSource = `
         
         noise_val = max(noise_val, central_mass_value);
         float cloud_intensity = smoothstep(u_cloud_low, u_cloud_high, noise_val);
+
+        // 对流细节纹理：浓密云区内的细尺度斑驳（上冲云顶/塔状对流）
+        float conv_tex = fbm(noise_uv * 5.0 + u_random_seed * 3.0 + u_time * 0.05);
+        cloud_intensity += (conv_tex - 0.5) * 0.18 * smoothstep(0.55, 0.9, cloud_intensity);
+
+        // 卷云外流罩：核心外围反气旋方向拖出的薄卷云
+        float cirrus_angle = angle - 0.35 * u_spiral_strength * log(dist + 0.3) * u_hemisphere + u_time * 0.04 * u_hemisphere;
+        vec2 cirrus_uv = vec2(cos(cirrus_angle), sin(cirrus_angle)) * dist * 2.5;
+        float cirrus_noise = fbm(cirrus_uv + u_random_seed + 37.0);
+        float cirrus_mask = smoothstep(dynamic_storm_radius * 0.85, dynamic_storm_radius + 0.35, dist)
+                          * (1.0 - smoothstep(dynamic_storm_radius + 0.35, dynamic_storm_radius + 1.1, dist));
+        float outflow_strength = smoothstep(1.0, 2.2, u_spiral_strength);
+        float cirrus_val = smoothstep(0.45, 0.8, cirrus_noise) * cirrus_mask * 0.28 * outflow_strength;
+        cloud_intensity = max(cloud_intensity, cirrus_val);
+
+        // 环境低云：远处海面上零散的浅积云斑点
+        float popcorn = smoothstep(0.72, 0.86, fbm(uv * 12.0 + u_random_seed * 2.0 + u_time * 0.02));
+        cloud_intensity = max(cloud_intensity, popcorn * 0.16);
+
+        cloud_intensity = clamp(cloud_intensity, 0.0, 1.0);
         vec3 color = nrl_color_ramp(cloud_intensity);
         float ir_val = max(0.1, pow(cloud_intensity*1.3, 1.2));
-        vec3 grayColor = vec3(ir_val);
+        // IR 传感器颗粒噪声，避免灰度图过于平滑
+        float sensor_grain = (random(gl_FragCoord.xy * 0.7 + u_time) - 0.5) * 0.025;
+        vec3 grayColor = vec3(clamp(ir_val + sensor_grain, 0.0, 1.0));
         vec3 final_color = mix(color, grayColor, u_grayscale);
         
         gl_FragColor = vec4(final_color, 1.0);
