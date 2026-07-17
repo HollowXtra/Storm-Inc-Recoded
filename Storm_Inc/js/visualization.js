@@ -1020,6 +1020,26 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
 
     // 7. 预测路径 (Forecast)
     forecastLayer.selectAll("*").remove();
+    if (cyclone && cyclone.isInvest && cyclone.status === 'active' && typeof d3.geoCircle === 'function') {
+        const chance48h = Number.isFinite(Number(cyclone.investChance48h)) ? Number(cyclone.investChance48h) : Math.round(Math.max(0, Math.min(80, (Number(cyclone.investPotential) || 0) * 80)) / 5) * 5;
+        const chance7d = Number.isFinite(Number(cyclone.investChance7d)) ? Number(cyclone.investChance7d) : Math.round(Math.max(chance48h, Math.min(90, (Number(cyclone.investPotential) || 0) * 100 + 10)) / 5) * 5;
+        const outlookAreas = [
+            { label: '48H', chance: chance48h, radius: 2.5 + chance48h * 0.025, color: '#facc15' },
+            { label: '7D', chance: chance7d, radius: 4 + chance7d * 0.045, color: '#f59e0b' }
+        ];
+        outlookAreas.forEach(area => {
+            const feature = d3.geoCircle().center([cyclone.lon, cyclone.lat]).radius(area.radius).precision(4)();
+            forecastLayer.append('path')
+                .datum(feature)
+                .attr('class', 'invest-outlook-area')
+                .attr('d', pathGenerator)
+                .style('fill', area.color)
+                .style('fill-opacity', 0.12)
+                .style('stroke', area.color)
+                .style('stroke-width', 1.5)
+                .style('stroke-dasharray', area.label === '7D' ? '5,4' : null);
+        });
+    }
     if (showPathForecast && pathForecasts && pathForecasts.length > 0) {
         drawForecastCone(forecastLayer, mapProjection, pathForecasts);
         const colors = d3.scaleOrdinal(d3.schemeCategory10);
@@ -1131,6 +1151,26 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
     } else {
         cycloneLayer.selectAll("*").remove();
     }
+
+    cycloneLayer.selectAll('.invest-label')
+        .data(cyclone && cyclone.status === 'active' && cyclone.isInvest ? [cyclone] : [])
+        .join(
+            enter => enter.append('text')
+                .attr('class', 'invest-label')
+                .style('fill', '#f8fafc')
+                .style('font-size', '10px')
+                .style('font-family', 'monospace')
+                .style('font-weight', '900')
+                .style('paint-order', 'stroke')
+                .style('stroke', '#0f172a')
+                .style('stroke-width', '3px')
+                .style('pointer-events', 'none'),
+            update => update,
+            exit => exit.remove()
+        )
+        .attr('x', d => mapProjection([d.lon, d.lat])[0] + 11)
+        .attr('y', d => mapProjection([d.lon, d.lat])[1] - 11)
+        .text(d => `${d.investDesignation || 'INVEST'} • ${Math.round(d.investChance7d || 0)}% 7D`);
 
     pressureHandlesLayer.selectAll("*").remove(); 
     
@@ -2016,6 +2056,10 @@ export function renderJTWCStyle(cyclone, timeIndex, worldData) {
         return newP;
     });
     const currentPoint = pastTrack[timeIndex]; // 更新为解包后的当前点
+    const isInvest = currentPoint[11] ?? cyclone.isInvest;
+    const investName = cyclone.investDesignation || 'INVEST';
+    const investChance48h = Number.isFinite(Number(cyclone.investChance48h)) ? Number(cyclone.investChance48h) : Math.round(Math.max(0, Math.min(80, (Number(cyclone.investPotential) || 0) * 80)) / 5) * 5;
+    const investChance7d = Number.isFinite(Number(cyclone.investChance7d)) ? Number(cyclone.investChance7d) : Math.round(Math.max(investChance48h, Math.min(90, (Number(cyclone.investPotential) || 0) * 100 + 10)) / 5) * 5;
 
     // B. 获取预测数据并解包
     const currentAge = timeIndex * 3; 
@@ -2501,10 +2545,10 @@ export function renderJTWCStyle(cyclone, timeIndex, worldData) {
     // E. 历史路径
     if (pastTrack.length > 0) {
         ctx.beginPath();
-        ctx.strokeStyle = "black";
+        ctx.strokeStyle = isInvest ? "#d97706" : "black";
         ctx.lineWidth = 3;
         ctx.lineJoin = "round";
-        ctx.setLineDash([4, 2]);
+        ctx.setLineDash(isInvest ? [8, 5] : [4, 2]);
         const trackFeature = {
             type: "LineString",
             coordinates: pastTrack.map(p => [p[0], p[1]])
@@ -2529,7 +2573,17 @@ export function renderJTWCStyle(cyclone, timeIndex, worldData) {
 
         const intensity = p[2]; // 获取强度
 
-        if (intensity >= 64) {
+        if (p[11]) {
+            ctx.setLineDash([]);
+            ctx.strokeStyle = "#d97706";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(pos[0] - 5, pos[1] - 5);
+            ctx.lineTo(pos[0] + 5, pos[1] + 5);
+            ctx.moveTo(pos[0] + 5, pos[1] - 5);
+            ctx.lineTo(pos[0] - 5, pos[1] + 5);
+            ctx.stroke();
+        } else if (intensity >= 64) {
             // [>= 64 KT] 实心台风图标 (TY)
             // 1. 先画一个白色背景圆，遮挡住底下的路径线，防止线条穿过图标
             ctx.beginPath();
@@ -2678,8 +2732,8 @@ export function renderJTWCStyle(cyclone, timeIndex, worldData) {
     const currPos = projection(currentPoint);
     if (currPos) {
         ctx.beginPath();
-        ctx.fillStyle = "#ff0000"; 
-        ctx.strokeStyle = "black";
+        ctx.fillStyle = isInvest ? "#f59e0b" : "#ff0000";
+        ctx.strokeStyle = isInvest ? "#92400e" : "black";
         ctx.lineWidth = 2;
         ctx.arc(currPos[0], currPos[1], 7, 0, Math.PI * 2);
         ctx.fill();
@@ -2689,7 +2743,7 @@ export function renderJTWCStyle(cyclone, timeIndex, worldData) {
         ctx.font = "bold 20px Arial"; // 保持原字体，或者换成 'JetBrains Mono' 也可以
         ctx.textAlign = "left";
         
-        const name = (cyclone.name || "NONAME").toUpperCase();
+        const name = (isInvest ? investName : (cyclone.name || "NONAME")).toUpperCase();
         
         // [新增] 获取强度并取整到最近的 5KT
         // currentPoint 结构通常是 [lon, lat, intensity, ...]
@@ -2701,15 +2755,15 @@ export function renderJTWCStyle(cyclone, timeIndex, worldData) {
     }
 
     // H. 装饰
-    ctx.fillStyle = "black";
+    ctx.fillStyle = isInvest ? "#0b2a4a" : "black";
     ctx.fillRect(0, 0, width, 50);
     ctx.fillStyle = "white";
     ctx.font = "bold 20px Arial";
     ctx.textAlign = "left";
     const reportNum = timeIndex + 1;
-    ctx.fillText(`PROGNOSTIC REASONING: ${(cyclone.name || 'TD').toUpperCase()} #${reportNum}`, 20, 32);
+    ctx.fillText(isInvest ? `TROPICAL WEATHER OUTLOOK: ${investName} #${reportNum}` : `PROGNOSTIC REASONING: ${(cyclone.name || 'TD').toUpperCase()} #${reportNum}`, 20, 32);
     ctx.textAlign = "right";
-    ctx.fillText("INDEPENDENT CYCLONE WARNING CENTER", width - 20, 32);
+    ctx.fillText(isInvest ? `48H ${investChance48h}% • 7D ${investChance7d}%` : "INDEPENDENT CYCLONE WARNING CENTER", width - 20, 32);
 
     ctx.fillStyle = "red";
     ctx.font = "bold 16px Arial";

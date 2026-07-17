@@ -300,6 +300,34 @@ world: null,
         return cyclone && cyclone.seasonYear ? cyclone.seasonYear : state.seasonYear;
     }
 
+    function getInvestFormationChance(cyclone, period = '48h') {
+        const storedChance = period === '48h' ? cyclone?.investChance48h : cyclone?.investChance7d;
+        if (Number.isFinite(Number(storedChance))) return Math.max(0, Math.min(100, Math.round(Number(storedChance))));
+        const potential = Math.max(0, Math.min(1, Number(cyclone?.investPotential) || 0));
+        const chance48h = Math.round(Math.max(0, Math.min(80, potential * 80)) / 5) * 5;
+        return period === '48h'
+            ? chance48h
+            : Math.round(Math.max(chance48h, Math.min(90, potential * 100 + 10)) / 5) * 5;
+    }
+
+    function getInvestChanceLabel(percent) {
+        if (percent >= 60) return 'HIGH';
+        if (percent >= 30) return 'MEDIUM';
+        return 'LOW';
+    }
+
+    function getBasinOutlookName(basin) {
+        return {
+            NATL: 'North Atlantic',
+            EPAC: 'Eastern North Pacific',
+            WPAC: 'Western North Pacific',
+            NIO: 'North Indian Ocean',
+            SIO: 'South Indian Ocean',
+            SHEM: 'South Pacific',
+            SATL: 'South Atlantic'
+        }[basin] || 'tropical waters';
+    }
+
     function getSimulationDate(cyclone = state.cyclone, age = 0, month = state.currentMonth) {
         // setUTCFullYear preserves years 1–99; Date.UTC would reinterpret them as 1901–1999.
         const date = new Date(0);
@@ -838,6 +866,8 @@ world: null,
 function updateWarningPanel() {
     const warningPanel = document.getElementById('warning-panel');
     const warningList = document.getElementById('warning-list');
+    const warningOffice = document.getElementById('warning-office');
+    const warningTitle = document.getElementById('warning-title');
     const warningMeta = document.getElementById('warning-meta');
     const warningHeadline = document.getElementById('warning-headline');
     const warningAdvisoryNumber = document.getElementById('warning-advisory-number');
@@ -848,8 +878,12 @@ function updateWarningPanel() {
 
     const cyclone = state.cyclone;
     const basin = cyclone.basin || basinSelector.value || 'WPAC';
+    const isInvest = Boolean(cyclone.isInvest);
     const stormName = getStormDisplayName(cyclone, String(state.simulationCount).padStart(2, '0'));
     const wind = Math.round(cyclone.intensity || 0);
+    const investChance48h = getInvestFormationChance(cyclone, '48h');
+    const investChance7d = getInvestFormationChance(cyclone, '7d');
+    const investAreaName = getBasinOutlookName(basin);
     const category = getEnglishCategoryName(wind, cyclone.isExtratropical, cyclone.isSubtropical, basin, cyclone.isInvest);
     const seasonYear = getStormSeasonYear(cyclone);
     const advisoryNumber = String(Math.max(1, Math.floor((cyclone.age || 0) / 3) + 1)).padStart(2, '0');
@@ -882,8 +916,8 @@ function updateWarningPanel() {
     const addProduct = (title, status, message, tone = 'red', icon = 'fa-triangle-exclamation') => products.push({ title, status, message, tone, icon });
     const watchOrWarning = siteDistance != null && siteDistance > 400 ? 'WATCH' : 'WARNING';
 
-    if (cyclone.isInvest) {
-        addProduct('INVESTIGATION ACTIVE', 'MONITORING', `${stormName} is an area of disturbed weather under investigation. Model development potential is ${Math.round((cyclone.investPotential || 0) * 100)}%; no tropical-cyclone name has been assigned.`, 'yellow', 'fa-magnifying-glass');
+    if (isInvest) {
+        addProduct(stormName, 'INVEST', `${investAreaName} disturbance under investigation. Formation chances are ${getInvestChanceLabel(investChance48h)} through 48 hours and ${getInvestChanceLabel(investChance7d)} through 7 days.`, 'yellow', 'fa-location-crosshairs');
     } else if (wind >= 64) {
         addProduct(`${basin === 'WPAC' ? 'TYPHOON' : 'HURRICANE'} ${watchOrWarning}`, 'IN EFFECT', `${category} conditions are occurring or expected along the track. Maximum sustained winds are ${wind} kt.`, 'red', 'fa-wind');
     } else if (wind >= 34) {
@@ -916,19 +950,23 @@ function updateWarningPanel() {
 
     const warningCount = products.filter(product => product.status === 'IN EFFECT').length;
     const watchCount = products.filter(product => product.title.includes('WATCH')).length;
-    const headlineProduct = products.find(product => product.status === 'IN EFFECT') || products.find(product => product.title.includes('WATCH')) || products.find(product => product.title === 'INVESTIGATION ACTIVE') || products[0];
-    const headlineText = headlineProduct
-        ? `${headlineProduct.title} ${headlineProduct.status === 'IN EFFECT' ? 'IN EFFECT' : headlineProduct.status === 'MONITORING' ? 'UNDER INVESTIGATION' : 'ISSUED'} FOR ${areaText}`
-        : `${stormName} IS BEING MONITORED — NO SIMULATED WATCHES OR WARNINGS IN EFFECT`;
+    const headlineProduct = products.find(product => product.status === 'IN EFFECT') || products.find(product => product.title.includes('WATCH')) || products.find(product => product.title === stormName) || products[0];
+    const headlineText = isInvest
+        ? `${stormName} UNDER INVESTIGATION • ${investAreaName.toUpperCase()}`
+        : headlineProduct
+            ? `${headlineProduct.title} ${headlineProduct.status === 'IN EFFECT' ? 'IN EFFECT' : headlineProduct.status === 'MONITORING' ? 'UNDER INVESTIGATION' : 'ISSUED'} FOR ${areaText}`
+            : `${stormName} IS BEING MONITORED — NO SIMULATED WATCHES OR WARNINGS IN EFFECT`;
+    if (warningOffice) warningOffice.textContent = isInvest ? 'ICWC • TROPICAL WEATHER OUTLOOK' : 'ICWC • INDEPENDENT CYCLONE WARNING CENTER';
+    if (warningTitle) warningTitle.textContent = isInvest ? 'TROPICAL WEATHER OUTLOOK' : 'TROPICAL CYCLONE PUBLIC ADVISORY';
     if (warningHeadline) {
         warningHeadline.className = `px-4 py-2 text-[10px] font-black uppercase tracking-wide ${warningCount > 0 ? 'bg-[#d71920] text-white' : watchCount > 0 ? 'bg-[#f5c542] text-slate-900' : 'bg-[#2563eb] text-white'}`;
         warningHeadline.textContent = headlineText;
     }
     if (warningMeta) {
-        warningMeta.textContent = `ADVISORY ${advisoryNumber} • ISSUED ${validText} • NEXT UPDATE IN 3 HOURS • ${products.length} PRODUCT${products.length === 1 ? '' : 'S'} ACTIVE`;
+        warningMeta.textContent = `${isInvest ? 'OUTLOOK' : 'ADVISORY'} ${advisoryNumber} • ISSUED ${validText} • NEXT UPDATE IN 3 HOURS • ${products.length} PRODUCT${products.length === 1 ? '' : 'S'} ACTIVE`;
     }
     if (warningAdvisoryNumber) {
-        warningAdvisoryNumber.innerHTML = `ADVISORY<br>${advisoryNumber}`;
+        warningAdvisoryNumber.innerHTML = `${isInvest ? 'OUTLOOK' : 'ADVISORY'}<br>${advisoryNumber}`;
     }
 
     const toneStyles = {
@@ -959,6 +997,15 @@ function updateWarningPanel() {
         }).join('')
         : '<div class="bg-white border border-slate-300 px-3 py-3 text-[9px] text-slate-600">There are currently no simulated watches or warnings in effect. Continue to monitor the next advisory.</div>';
 
+    const formationMarkup = isInvest ? `
+        <div class="mt-3 border border-slate-300 bg-[#f7f7f7] p-3">
+            <div class="text-[9px] font-black uppercase tracking-wide border-b border-slate-300 pb-2 mb-2">Formation Chance</div>
+            <div class="grid grid-cols-2 gap-2 text-center">
+                <div class="bg-white border border-slate-200 p-2"><div class="text-[8px] text-slate-500 uppercase">Through 48 Hours</div><div class="text-lg font-black mt-1">${investChance48h}%</div><div class="text-[8px] font-bold text-slate-500 uppercase">${getInvestChanceLabel(investChance48h)}</div></div>
+                <div class="bg-white border border-slate-200 p-2"><div class="text-[8px] text-slate-500 uppercase">Through 7 Days</div><div class="text-lg font-black mt-1">${investChance7d}%</div><div class="text-[8px] font-bold text-slate-500 uppercase">${getInvestChanceLabel(investChance7d)}</div></div>
+            </div>
+        </div>
+    ` : '';
     const statusMarkup = `
         <div class="grid grid-cols-2 gap-px bg-slate-300 border border-slate-300">
             <div class="bg-white px-3 py-2"><div class="text-[8px] text-slate-500 font-bold uppercase">Position</div><div class="text-[11px] font-black mt-1">${positionText}</div></div>
@@ -966,10 +1013,16 @@ function updateWarningPanel() {
             <div class="bg-white px-3 py-2"><div class="text-[8px] text-slate-500 font-bold uppercase">Maximum Winds</div><div class="text-[11px] font-black mt-1">${wind} KT</div></div>
             <div class="bg-white px-3 py-2"><div class="text-[8px] text-slate-500 font-bold uppercase">Minimum Pressure</div><div class="text-[11px] font-black mt-1">${pressure} MB</div></div>
         </div>
-        <p class="text-[9px] leading-relaxed text-slate-700 mt-2"><strong>${escapeHtml(stormName)}</strong> is a simulated ${escapeHtml(category.toLowerCase())} in the ${escapeHtml(basin)} basin. The center is near ${positionText}; maximum sustained winds are ${wind} kt with higher gusts.</p>
+        ${formationMarkup}
+        <p class="text-[9px] leading-relaxed text-slate-700 mt-2"><strong>${escapeHtml(stormName)}</strong> is ${isInvest ? `an area of disturbed weather under investigation in the ${escapeHtml(investAreaName)}. The INVEST designation supports data collection and model guidance; it does not by itself indicate a tropical cyclone or a specific threat.` : `a simulated ${escapeHtml(category.toLowerCase())} in the ${escapeHtml(basin)} basin. The center is near ${positionText}; maximum sustained winds are ${wind} kt with higher gusts.`}</p>
     `;
 
-    const hazardRows = [
+    const hazardRows = isInvest ? [
+        ['SYSTEM STATUS', `${stormName} is an INVEST area of disturbed weather. No tropical cyclone name has been assigned.`],
+        ['FORMATION CHANCE', `48 hours: ${getInvestChanceLabel(investChance48h)} (${investChance48h}%). 7 days: ${getInvestChanceLabel(investChance7d)} (${investChance7d}%).`],
+        ['RAINFALL / FLOODING', 'Disorganized showers and thunderstorms may produce locally heavy rainfall near the disturbance, regardless of development.'],
+        ['WIND / COASTAL HAZARDS', 'No tropical cyclone watches or warnings are in effect based solely on this INVEST designation.']
+    ] : [
         ['WIND', `${category}; maximum sustained winds ${wind} kt. ${cyclone.isLand || cyclone.isNearLand ? 'Wind damage and dangerous gusts are possible inland.' : 'Interests along the track should prepare for changing conditions.'}`],
         ['STORM SURGE', (cyclone.stormSurge || 0) >= 1 ? `Modeled coastal water rise is ${(cyclone.stormSurge || 0).toFixed(1)} m; peak modeled surge this storm is ${(cyclone.peakStormSurge || cyclone.stormSurge || 0).toFixed(1)} m.` : 'No significant simulated storm-surge signal is currently present.'],
         ['RAINFALL / FLOODING', 'Heavy rainfall and flash flooding are possible near the circulation, especially where the center crosses land or terrain enhances rainfall.'],
@@ -985,7 +1038,12 @@ function updateWarningPanel() {
         </div>
     `).join('');
 
-    const keyMessages = [
+    const keyMessages = isInvest ? [
+        `${stormName} is a simulated INVEST in the ${investAreaName}. Use the outlook and track products to monitor the disturbance.`,
+        `Formation chance is ${getInvestChanceLabel(investChance48h).toLowerCase()} through 48 hours (${investChance48h}%) and ${getInvestChanceLabel(investChance7d).toLowerCase()} through 7 days (${investChance7d}%).`,
+        'An INVEST designation supports data collection and model guidance; it does not guarantee development or indicate a specific threat.',
+        'Continue to monitor later outlooks. Watches and warnings are issued separately if a tropical cyclone threat develops.'
+    ] : [
         `${stormName} is a simulated advisory. Use the track and forecast products to assess exposure in the affected area.`,
         products.length > 0 ? 'Follow local emergency management guidance and do not wait for conditions to deteriorate before taking protective action.' : 'Conditions remain below the simulator warning thresholds, but rapid changes are possible.',
         (cyclone.stormSurge || 0) >= 1 ? `Move away from low-lying coastal areas if directed; storm surge can arrive before the center.` : 'Coastal water rise remains below the current simulated warning threshold.',
@@ -998,11 +1056,11 @@ function updateWarningPanel() {
 
     warningList.innerHTML = `
         <section class="bg-slate-200 border border-slate-300">
-            <div class="px-3 py-2 text-[9px] font-black tracking-wide uppercase border-b border-slate-300">Summary of Watches and Warnings in Effect</div>
+            <div class="px-3 py-2 text-[9px] font-black tracking-wide uppercase border-b border-slate-300">${isInvest ? 'Active Systems and Formation Potential' : 'Summary of Watches and Warnings in Effect'}</div>
             <div class="p-2 space-y-2">${productMarkup}</div>
         </section>
         <section class="bg-white border border-slate-300 px-3 py-2">
-            <div class="text-[9px] font-black tracking-wide uppercase border-b border-slate-200 pb-2 mb-2">Current Status</div>
+            <div class="text-[9px] font-black tracking-wide uppercase border-b border-slate-200 pb-2 mb-2">${isInvest ? 'Current System Status' : 'Current Status'}</div>
             ${statusMarkup}
         </section>
         <section class="bg-white border border-slate-300 px-3 py-2">
@@ -1261,10 +1319,11 @@ function updateInfoPanel() {
 
     function updateMapInfoBox() {
         const cat = state.cyclone.isInvest
-            ? { shortName: 'INVEST' }
-            : getCategory(state.cyclone.intensity, state.cyclone.isTransitioning, state.cyclone.isExtratropical, state.cyclone.isSubtropical);
+        ? { shortName: 'INVEST' }
+        : getCategory(state.cyclone.intensity, state.cyclone.isTransitioning, state.cyclone.isExtratropical, state.cyclone.isSubtropical);
         document.getElementById('map-info-time').textContent = `T+${state.cyclone.age}h`;
-        document.getElementById('map-info-intensity').textContent = `${cat.shortName} - ${state.cyclone.intensity.toFixed(0)}KT`;
+        const mapIntensityLabel = state.cyclone.isInvest && state.cyclone.investDesignation ? state.cyclone.investDesignation : cat.shortName;
+        document.getElementById('map-info-intensity').textContent = `${mapIntensityLabel} - ${state.cyclone.intensity.toFixed(0)}KT`;
         const centerEnvP = getPressureAt(state.cyclone.lon, state.cyclone.lat, state.pressureSystems);
         const pVal = windToPressure(state.cyclone.intensity, state.cyclone.circulationSize, state.cyclone.basin, centerEnvP);
         
@@ -1498,6 +1557,8 @@ function updateInfoPanel() {
                 investDesignation: state.cyclone.investDesignation,
                 investStatus: state.cyclone.investStatus,
                 investPotential: state.cyclone.investPotential,
+                investChance48h: state.cyclone.investChance48h,
+                investChance7d: state.cyclone.investChance7d,
                 peakWind: Math.round(peakWind),
                 minPressure: Math.round(minPressure),
                 ace: state.cyclone.ace.toFixed(2),
@@ -1792,6 +1853,7 @@ if (yearSelector) yearSelector.disabled = true;
         state.pathForecasts = generatePathForecasts(state.cyclone, state.pressureSystems, checkLandWrapper, state.GlobalTemp, state.GlobalShear);
         updateInfoPanel();
         updateMapInfoBox();
+        updateWarningPanel();
         updateToggleButtonVisual(togglePressureButton, state.showPressureField);
         updateToggleButtonVisual(toggleWindRadiiButton, state.showWindRadii);
         updateToggleButtonVisual(togglePathButton, state.showPathForecast);
@@ -2451,7 +2513,78 @@ if (yearSelector) yearSelector.disabled = true;
 
         // --- 2. Product renderers ---
 
+        const showInvestOutlook = () => {
+            const point = targetCyclone.track[renderIndex] || targetCyclone.track[targetCyclone.track.length - 1] || [];
+            const isInvestPoint = point[11] ?? targetCyclone.isInvest;
+            if (!isInvestPoint) return false;
+
+            updateTabStyles(tabPublicAdvisory);
+            tabPublicAdvisory.innerHTML = '<span>TROPICAL WEATHER OUTLOOK</span><span class="text-[7px] bg-yellow-500/20 text-yellow-300 px-1.5 py-0.5 rounded">INVEST</span>';
+            currentMode = 'TROPICAL_WEATHER_OUTLOOK';
+            currentCanvas = null;
+
+            const targetAge = renderIndex * 3;
+            const basin = targetCyclone.basin || basinSelector.value || 'WPAC';
+            const basinName = getBasinOutlookName(basin);
+            const name = targetCyclone.investDesignation || 'INVEST';
+            const chance48h = getInvestFormationChance(targetCyclone, '48h');
+            const chance7d = getInvestFormationChance(targetCyclone, '7d');
+            const chanceLabel48h = getInvestChanceLabel(chance48h);
+            const chanceLabel7d = getInvestChanceLabel(chance7d);
+            const wind = Math.round(point[2] || targetCyclone.intensity || 0);
+            const pressure = Math.round(point[10] || windToPressure(wind, targetCyclone.circulationSize || 300, basin));
+            const valid = getSimulationDate(targetCyclone, targetAge, targetCyclone.currentMonth || state.currentMonth);
+            const validText = valid && !Number.isNaN(valid.getTime())
+                ? `${String(targetCyclone.seasonYear || state.seasonYear).padStart(4, '0')}-${String(valid.getUTCMonth() + 1).padStart(2, '0')}-${String(valid.getUTCDate()).padStart(2, '0')} ${String(valid.getUTCHours()).padStart(2, '0')}Z`
+                : 'TIME UNAVAILABLE';
+            const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]));
+            const formatCoordinate = (value, positive, negative) => {
+                const numericValue = Number(value) || 0;
+                return `${Math.abs(numericValue).toFixed(1)}°${numericValue >= 0 ? positive : negative}`;
+            };
+            const position = `${formatCoordinate(point[1] ?? targetCyclone.lat, 'N', 'S')} ${formatCoordinate(point[0] ?? targetCyclone.lon, 'E', 'W')}`;
+            const discussion = chance7d >= 60
+                ? 'Environmental conditions appear conducive for development, and a tropical depression could form during the next several days.'
+                : chance7d >= 30
+                    ? 'Some development of this system is possible during the next several days while it moves along the current track.'
+                    : 'Development of this system is expected to be limited, but locally heavy rainfall may occur near the disturbance.';
+
+            contentArea.innerHTML = `
+                <div class="w-full max-w-4xl bg-white text-slate-900 border border-slate-300 shadow-sm font-mono">
+                    <header class="px-5 py-5 border-b-4 border-[#0b2a4a]">
+                        <div class="text-[9px] font-black tracking-[0.2em] text-slate-500">ICWC • SIMULATED TROPICAL WEATHER OUTLOOK</div>
+                        <div class="flex flex-wrap items-start justify-between gap-4 mt-2">
+                            <div><h2 class="text-2xl md:text-3xl font-black">Tropical Weather Outlook</h2><div class="text-[10px] text-slate-500 mt-2 uppercase">Independent Cyclone Warning Center • ${escapeHtml(basinName)}</div></div>
+                            <div class="text-right text-[9px] font-black uppercase"><div>OUTLOOK ${String(Math.max(1, renderIndex + 1)).padStart(2, '0')}</div><div class="text-slate-500 mt-1">ISSUED ${escapeHtml(validText)}</div></div>
+                        </div>
+                        <div class="mt-4 bg-[#0b2a4a] text-white px-3 py-2 text-[10px] font-black uppercase tracking-wide">For the ${escapeHtml(basinName)} basin and adjacent waters:</div>
+                    </header>
+                    <main class="p-5 space-y-4">
+                        <section>
+                            <div class="text-[10px] font-black uppercase tracking-wide border-b border-slate-300 pb-2 mb-3">Active Systems</div>
+                            <article class="border border-slate-300 bg-slate-50 p-4">
+                                <div class="flex flex-wrap items-center justify-between gap-2"><h3 class="text-sm font-black">${escapeHtml(name)}</h3><span class="bg-yellow-100 text-yellow-800 px-2 py-1 text-[8px] font-black uppercase">INVESTIGATION</span></div>
+                                <p class="text-[10px] leading-relaxed text-slate-700 mt-3">A simulated area of low pressure near ${escapeHtml(position)} is producing disorganized showers and thunderstorms. ${discussion} Regardless of development, locally heavy rainfall may occur near the system.</p>
+                                <ul class="text-[10px] leading-relaxed text-slate-700 mt-3 space-y-1"><li>* Formation chance through 48 hours...${chanceLabel48h.toLowerCase()}...${chance48h} percent.</li><li>* Formation chance through 7 days...${chanceLabel7d.toLowerCase()}...${chance7d} percent.</li></ul>
+                            </article>
+                        </section>
+                        <section class="grid grid-cols-2 md:grid-cols-4 gap-px bg-slate-300 border border-slate-300">
+                            <div class="bg-white p-3"><div class="text-[8px] text-slate-500 uppercase">Position</div><div class="text-[11px] font-black mt-1">${position}</div></div>
+                            <div class="bg-white p-3"><div class="text-[8px] text-slate-500 uppercase">Maximum Winds</div><div class="text-[11px] font-black mt-1">${wind} KT</div></div>
+                            <div class="bg-white p-3"><div class="text-[8px] text-slate-500 uppercase">Minimum Pressure</div><div class="text-[11px] font-black mt-1">${pressure} MB</div></div>
+                            <div class="bg-white p-3"><div class="text-[8px] text-slate-500 uppercase">Designation</div><div class="text-[11px] font-black mt-1">${escapeHtml(name)}</div></div>
+                        </section>
+                        <section class="border-l-4 border-yellow-500 bg-yellow-50 px-4 py-3 text-[10px] leading-relaxed text-yellow-950"><strong>Operational note:</strong> An INVEST designation is used for data collection and model guidance. It does not itself represent a tropical cyclone, a guarantee of development, or a tropical cyclone watch or warning.</section>
+                    </main>
+                    <footer class="border-t border-slate-300 bg-slate-100 px-4 py-2 text-[8px] text-slate-500 uppercase">Simulator product • NHC-style presentation • Not a real-world forecast</footer>
+                </div>
+            `;
+            return true;
+        };
+
         const showPublicAdvisory = () => {
+            tabPublicAdvisory.innerHTML = '<span>PUBLIC ADVISORY</span><span class="text-[7px] bg-red-500/20 text-red-300 px-1.5 py-0.5 rounded">NEW</span>';
+            if (showInvestOutlook()) return;
             updateTabStyles(tabPublicAdvisory);
             currentMode = 'PUBLIC_ADVISORY';
             currentCanvas = null;
@@ -2645,6 +2778,8 @@ if (yearSelector) yearSelector.disabled = true;
         };
         
         const showGraphic = () => {
+            const graphicPoint = targetCyclone.track[renderIndex] || targetCyclone.track[targetCyclone.track.length - 1] || [];
+            tabGraphic.textContent = (graphicPoint[11] ?? targetCyclone.isInvest) ? 'OUTLOOK GRAPHIC' : 'WARNING GRAPHIC';
             updateTabStyles(tabGraphic);
             currentMode = 'GRAPHIC';
             showLoading(); 

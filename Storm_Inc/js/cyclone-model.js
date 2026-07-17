@@ -169,6 +169,8 @@ export function initializeCyclone(world, month, basin = 'WPAC', globalTemp, glob
     const investPotential = Number(Math.max(0.05, Math.min(0.95,
         0.45 + (initialSST - 25.4) * 0.12 - (globalShear || 0) * 0.0015
     )).toFixed(2));
+    const investChance48h = Math.round(Math.max(0, Math.min(80, investPotential * 80)) / 5) * 5;
+    const investChance7d = Math.round(Math.max(investChance48h, Math.min(90, investPotential * 100 + 10)) / 5) * 5;
     let isSubtropical = false;
     let subtropicalTransitionTime = 0;
     if (initialSST < 27.5 && Math.random() < 0.75 && (lon > 122 || lon < 40)) {
@@ -207,6 +209,8 @@ export function initializeCyclone(world, month, basin = 'WPAC', globalTemp, glob
         investReviewWindow: 48,
         investDecisionAge: null,
         investPotential: investPotential,
+        investChance48h: investChance48h,
+        investChance7d: investChance7d,
         investDissipationReason: '',
         age: 0,
         shearEventActive: false,
