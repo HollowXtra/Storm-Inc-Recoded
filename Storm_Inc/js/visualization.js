@@ -1290,7 +1290,7 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
             .data(iconData)
             .join(
                 enter => enter.append("circle")
-                    .attr("r", 7)
+                    .attr("r", d => d.isInvest ? 0 : 7)
                     .attr("stroke", "white")
                     .attr("stroke-width", 1.5)
                     .attr("cx", d => mapProjection([d.lon, d.lat])[0])
@@ -1298,6 +1298,7 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
                     .attr("fill", d => d.isInvest ? "#f59e0b" : getCategory(d.intensity, d.isTransitioning, d.isExtratropical, d.isSubtropical).color)
                     .attr("stroke", d => d.isInvest ? "#f5c542" : "white"),
                 update => update
+                    .attr("r", d => d.isInvest ? 0 : 7)
                     .attr("cx", d => mapProjection([d.lon, d.lat])[0])
                     .attr("cy", d => mapProjection([d.lon, d.lat])[1])
                     .attr("fill", d => d.isInvest ? "#f59e0b" : getCategory(d.intensity, d.isTransitioning, d.isExtratropical, d.isSubtropical).color)
@@ -1312,6 +1313,22 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
         cycloneLayer.selectAll("*").remove();
     }
 
+    cycloneLayer.selectAll('.invest-oval')
+        .data(cyclone && cyclone.status === 'active' && cyclone.isInvest ? [cyclone] : [])
+        .join(
+            enter => enter.append('ellipse').attr('class', 'invest-oval'),
+            update => update,
+            exit => exit.remove()
+        )
+        .attr('cx', d => mapProjection([d.lon, d.lat])[0])
+        .attr('cy', d => mapProjection([d.lon, d.lat])[1])
+        .attr('rx', 11)
+        .attr('ry', 7)
+        .attr('fill', '#f59e0b')
+        .attr('fill-opacity', 0.95)
+        .attr('stroke', '#111827')
+        .attr('stroke-width', 2);
+
     cycloneLayer.selectAll('.invest-cross')
         .data(cyclone && cyclone.status === 'active' && cyclone.isInvest ? [cyclone] : [])
         .join(
@@ -1321,16 +1338,22 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
                     .style('pointer-events', 'none');
                 cross.append('line')
                     .attr('class', 'invest-cross-line')
-                    .attr('x1', -8)
-                    .attr('y1', -8)
-                    .attr('x2', 8)
-                    .attr('y2', 8);
+                    .attr('x1', -9)
+                    .attr('y1', -9)
+                    .attr('x2', 9)
+                    .attr('y2', 9)
+                    .attr('stroke', '#111827')
+                    .attr('stroke-width', 3)
+                    .attr('stroke-linecap', 'round');
                 cross.append('line')
                     .attr('class', 'invest-cross-line')
-                    .attr('x1', -8)
-                    .attr('y1', 8)
-                    .attr('x2', 8)
-                    .attr('y2', -8);
+                    .attr('x1', -9)
+                    .attr('y1', 9)
+                    .attr('x2', 9)
+                    .attr('y2', -9)
+                    .attr('stroke', '#111827')
+                    .attr('stroke-width', 3)
+                    .attr('stroke-linecap', 'round');
                 return cross;
             },
             update => update,
@@ -2761,7 +2784,7 @@ export function renderJTWCStyle(cyclone, timeIndex, worldData) {
 
     pastTrack.forEach((p, i) => {
         // 保持每 6 小时一个点的稀疏度 (假设每步3小时)
-        if (i % 2 !== 0) return;
+        if (i % 2 !== 0 || i === timeIndex) return;
         
         const pos = projection(p);
         if (!pos) return;
@@ -2926,13 +2949,34 @@ export function renderJTWCStyle(cyclone, timeIndex, worldData) {
     // G. 当前位置
     const currPos = projection(currentPoint);
     if (currPos) {
-        ctx.beginPath();
-        ctx.fillStyle = isInvest ? "#f59e0b" : "#ff0000";
-        ctx.strokeStyle = isInvest ? "#92400e" : "black";
-        ctx.lineWidth = 2;
-        ctx.arc(currPos[0], currPos[1], 7, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.stroke();
+        if (isInvest) {
+            ctx.setLineDash([]);
+            ctx.lineCap = "round";
+            ctx.strokeStyle = "#111827";
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(currPos[0] - 10, currPos[1] - 10);
+            ctx.lineTo(currPos[0] + 10, currPos[1] + 10);
+            ctx.moveTo(currPos[0] + 10, currPos[1] - 10);
+            ctx.lineTo(currPos[0] - 10, currPos[1] + 10);
+            ctx.stroke();
+            ctx.strokeStyle = getInvestOutlookColor(investChance7d);
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(currPos[0] - 10, currPos[1] - 10);
+            ctx.lineTo(currPos[0] + 10, currPos[1] + 10);
+            ctx.moveTo(currPos[0] + 10, currPos[1] - 10);
+            ctx.lineTo(currPos[0] - 10, currPos[1] + 10);
+            ctx.stroke();
+        } else {
+            ctx.beginPath();
+            ctx.fillStyle = "#ff0000";
+            ctx.strokeStyle = "black";
+            ctx.lineWidth = 2;
+            ctx.arc(currPos[0], currPos[1], 7, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+        }
         
         ctx.fillStyle = "black";
         ctx.font = "bold 20px Arial"; // 保持原字体，或者换成 'JetBrains Mono' 也可以
