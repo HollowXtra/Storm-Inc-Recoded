@@ -14,7 +14,15 @@ export default {
 
     if (url.pathname.includes('/api/weather') || url.pathname === '/') {
       try {
-        const stationId = url.searchParams.get('obtId') || 'G3738'; 
+        const rawStationId = url.searchParams.get('obtId') || 'G3738';
+        // 只允许字母与数字构成的站点 ID，防止参数注入 / 通过 obtId 篡改上游请求
+        if (!/^[A-Za-z0-9]{1,16}$/.test(rawStationId)) {
+          return new Response(JSON.stringify({ error: "无效的 obtId 参数" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json;charset=UTF-8" }
+          });
+        }
+        const stationId = encodeURIComponent(rawStationId);
         const TARGET_API_URL = `https://szqxapp1.121.com.cn/sztq-app/v6/v7/meteorologicalObt/topics?obtId=${stationId}&cityId=28060159493`;
 
         // 终极伪装：加入语言、缓存控制、多种内容接收类型

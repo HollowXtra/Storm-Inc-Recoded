@@ -4,7 +4,7 @@
  */
 
 // 从各模块导入函数
-import { getCategory, knotsToKph, knotsToMph, windToPressure, directionToCompass, getSST, calculateDistance, NAME_LISTS, getPressureAt } from './utils.js';
+import { getCategory, knotsToKph, knotsToMph, windToPressure, directionToCompass, getSST, calculateDistance, NAME_LISTS, getPressureAt, escapeHtml } from './utils.js';
 import { RadarRenderer, calculateRadarDbz, getShaderWindVector } from './radar-system.js';
 import { DopplerRenderer } from './radar-doppler.js';
 // [新增] 导入卫星云图模块
@@ -860,7 +860,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     type: 'warning',
                     level: 'critical',
                     title: 'CRITICAL ALERT',
-                    message: `Direct impact expected at ${state.siteName || 'observation post'}`,
+                    message: `Direct impact expected at ${escapeHtml(state.siteName) || 'observation post'}`,
                     icon: 'fa-house-crack',
                     color: 'text-red-500'
                 });
@@ -869,7 +869,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     type: 'watch',
                     level: 'moderate',
                     title: 'STORM WATCH',
-                    message: `Storm within 400km of ${state.siteName || 'observation post'}`,
+                    message: `Storm within 400km of ${escapeHtml(state.siteName) || 'observation post'}`,
                     icon: 'fa-binoculars',
                     color: 'text-yellow-400'
                 });
@@ -1463,7 +1463,7 @@ function updateInfoPanel() {
                     console.log(`Alert: Cyclone entered 400km radius (${Math.round(dist)}km)`);
 const cycloneNum = String(state.simulationCount).padStart(2, '0');
                     const displayName = state.cyclone.name ? state.cyclone.name.toUpperCase() : `SYSTEM ${cycloneNum}`;
-                    const siteName = state.siteName ? state.siteName.toUpperCase() : "OBSERVATION POST";
+                    const siteName = state.siteName ? escapeHtml(state.siteName.toUpperCase()) : "OBSERVATION POST";
 
                     // 构建标题 HTML (红色警报风格)
                     const headlineHTML = `ALERT: <span class="text-white text-base align-middle not-italic ml-2 font-bold">${displayName} ENTERED 400KM WARNING RANGE</span>`;
@@ -2582,7 +2582,7 @@ contentArea.innerHTML = `
                     <div class="flex justify-between items-end mb-4 border-b pb-2">
                         <div>
                             <div class="text-[10px] text-gray-400 font-bold">STATION OBS</div>
-                            <div class="text-2xl font-black">${siteName.toUpperCase()}</div>
+                            <div class="text-2xl font-black">${escapeHtml(siteName.toUpperCase())}</div>
                             <div class="text-[10px] text-gray-500 mt-1 flex gap-2">
                                 <span><i class="fa-solid fa-location-dot"></i> ${siteLatFixed.toFixed(2)}N, ${siteLonFixed.toFixed(2)}E</span>
                                 <span><i class="fa-solid fa-clock"></i> T+${targetHour}H</span>
