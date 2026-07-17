@@ -246,8 +246,16 @@ const fsSource = `
         
         if (dist_ratio > max_radius) discard;
 
-        float dist_km = dist_ratio * u_radar_radius_km;
-        vec2 px_offset_km = offset * (u_radar_radius_km * 2.0);
+        // 极坐标量化：模拟真实雷达的方位波束 (~0.75°) 与距离库 (~2km) 采样，
+        // 产生经典的径向像素化回波纹理（远处波束自然变宽）
+        float az_step = PI / 240.0;
+        float q_angle = (floor(angle_rad / az_step) + 0.5) * az_step;
+        float gate_km = 2.0;
+        float raw_dist_km = dist_ratio * u_radar_radius_km;
+        float dist_km = (floor(raw_dist_km / gate_km) + 0.5) * gate_km;
+        vec2 q_offset = vec2(cos(q_angle), sin(q_angle)) * (dist_km / (u_radar_radius_km * 2.0));
+
+        vec2 px_offset_km = q_offset * (u_radar_radius_km * 2.0);
         vec2 world_pos = u_radar_center + px_offset_km / 111.0;
         world_pos.x = u_radar_center.x + px_offset_km.x / 111.0;
 
@@ -456,7 +464,23 @@ const fsSource = `
         // Add terrain lift
         dbz += lift_factor * 0.16;
         dbz = max(0.0, dbz);
-        
+
+        // 逐库散斑噪声：真实回波在库尺度上并不平滑
+        float gate_noise = random(vec2(q_angle * 997.0, dist_km));
+        if (dbz > 1.0) dbz += (gate_noise - 0.5) * 5.0;
+
+        // 距离衰减：远程弱回波因波束抬升/灵敏度下降而消失（强回波基本不受影响）
+        float range_loss = smoothstep(0.55, 1.0, dist_ratio) * 8.0;
+        dbz -= range_loss * (1.0 - smoothstep(20.0, 45.0, dbz));
+
+        // 地物杂波：雷达站附近陆地上零星的固定回波点
+        float clutter_zone = 1.0 - smoothstep(15.0, 45.0, dist_km);
+        if (clutter_zone > 0.0 && elev > 2.0) {
+            float clutter = step(0.85, random(vec2(q_angle * 571.0, dist_km * 3.0))) * (12.0 + 16.0 * gate_noise);
+            dbz = max(dbz, clutter * clutter_zone);
+        }
+
+        dbz = max(0.0, dbz);
         gl_FragColor = getRadarColor(dbz);
     }
 `;

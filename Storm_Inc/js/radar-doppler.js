@@ -35,6 +35,13 @@ const fsSource = `
     const float DEG_TO_RAD = 0.01745329251;
     const float NYQUIST_VELOCITY = 50.0; // [设置] 最大不模糊速度 m/s (约 97 kts)
 
+    // --- 随机数 (用于逐库测速噪声) ---
+    float random(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * .1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
+    }
+
     // --- 速度折叠逻辑 ---
     float foldVelocity(float v) {
         // 使用 mod 运算模拟相位折叠
@@ -168,8 +175,17 @@ const fsSource = `
         // 简单的圆形遮罩
         if (dist_ratio > 0.98) discard; 
 
+        // 极坐标量化：与反射率雷达一致的方位波束/距离库采样纹理
+        float angle_rad = atan(offset.y, offset.x);
+        float az_step = PI / 240.0;
+        float q_angle = (floor(angle_rad / az_step) + 0.5) * az_step;
+        float gate_km = 2.0;
+        float raw_dist_km = dist_ratio * u_radar_radius_km;
+        float q_dist_km = (floor(raw_dist_km / gate_km) + 0.5) * gate_km;
+        vec2 q_offset = vec2(cos(q_angle), sin(q_angle)) * (q_dist_km / (u_radar_radius_km * 2.0));
+
         // 物理距离映射
-        vec2 px_offset_km = offset * (u_radar_radius_km * 2.0);
+        vec2 px_offset_km = q_offset * (u_radar_radius_km * 2.0);
         vec2 world_pos = u_radar_center + px_offset_km / 111.0; 
         world_pos.x = u_radar_center.x + px_offset_km.x / 111.0;
 
@@ -177,11 +193,14 @@ const fsSource = `
         vec2 wind = getWindVector(world_pos);
 
         // 2. 计算雷达视线方向矢量 (Radar Beam Direction)
-        vec2 beam_dir = normalize(offset); 
+        vec2 beam_dir = vec2(cos(q_angle), sin(q_angle)); 
         
         // 3. 计算真实径向速度 (Radial Velocity)
         // 正值=远离(红), 负值=靠近(绿)
         float radial_v = dot(wind, beam_dir);
+
+        // 逐库测速噪声：多普勒反演在库尺度上存在小幅抖动
+        radial_v += (random(vec2(q_angle * 887.0, q_dist_km)) - 0.5) * 1.6;
 
         // 4. [新增] 应用速度折叠 (Velocity Aliasing)
         float folded_v = foldVelocity(radial_v);
