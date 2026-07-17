@@ -896,6 +896,127 @@ function drawHazardOverlays(container, mapProjection, cyclone) {
     }
 }
 
+function getInvestOutlookColor(chance) {
+    if (chance >= 70) return '#d71920';
+    if (chance >= 40) return '#f59e0b';
+    return '#facc15';
+}
+
+function normalizeInvestLongitude(lon) {
+    let normalized = Number(lon) || 0;
+    while (normalized > 180) normalized -= 360;
+    while (normalized < -180) normalized += 360;
+    return normalized;
+}
+
+function getInvestChancePair(cyclone) {
+    const potential = Math.max(0, Math.min(1, Number(cyclone?.investPotential) || 0));
+    const chance48h = Number.isFinite(Number(cyclone?.investChance48h))
+        ? Number(cyclone.investChance48h)
+        : Math.round(Math.max(0, Math.min(80, potential * 80)) / 10) * 10;
+    const chance7d = Number.isFinite(Number(cyclone?.investChance7d))
+        ? Number(cyclone.investChance7d)
+        : Math.round(Math.max(chance48h, Math.min(90, potential * 100 + 10)) / 10) * 10;
+    return { chance48h, chance7d };
+}
+
+function getInvestForecastTrack(cyclone, pathForecasts) {
+    const currentPoint = [normalizeInvestLongitude(cyclone.lon), cyclone.lat];
+    const modelTrack = pathForecasts?.[0]?.track;
+    if (Array.isArray(modelTrack) && modelTrack.length > 1) {
+        const referenceLon = currentPoint[0];
+        return modelTrack.map(point => {
+            let lon = Number(point[0]) || referenceLon;
+            while (lon - referenceLon > 180) lon -= 360;
+            while (lon - referenceLon < -180) lon += 360;
+            return [lon, Number(point[1]) || cyclone.lat];
+        });
+    }
+
+    const heading = (Number(cyclone.direction) || 0) * Math.PI / 180;
+    const travelDeg = Math.max(5, Math.min(18, (Number(cyclone.speed) || 10) * 1.852 * 72 / 111));
+    const targetLat = cyclone.lat + Math.cos(heading) * travelDeg;
+    const targetLon = currentPoint[0] + Math.sin(heading) * travelDeg / Math.max(0.35, Math.cos(cyclone.lat * Math.PI / 180));
+    return [currentPoint, [targetLon, targetLat]];
+}
+
+function createInvestDevelopmentArea(cyclone, pathForecasts, chance7d) {
+    const forecastTrack = getInvestForecastTrack(cyclone, pathForecasts);
+    if (forecastTrack.length < 2) return null;
+
+    const leftBoundary = [];
+    const rightBoundary = [];
+    const finalIndex = forecastTrack.length - 1;
+    const maxWidth = 2.5 + chance7d * 0.045;
+
+    forecastTrack.forEach((point, index) => {
+        const previous = forecastTrack[Math.max(0, index - 1)];
+        const next = forecastTrack[Math.min(finalIndex, index + 1)];
+        const latitude = point[1];
+        const cosineLatitude = Math.max(0.35, Math.cos(latitude * Math.PI / 180));
+        const dx = (next[0] - previous[0]) * cosineLatitude;
+        const dy = next[1] - previous[1];
+        const tangent = Math.atan2(dy, dx);
+        const normal = tangent + Math.PI / 2;
+        const progress = index / finalIndex;
+        const width = 1.25 + progress * maxWidth;
+        leftBoundary.push([
+            point[0] + width * Math.cos(normal) / cosineLatitude,
+            point[1] + width * Math.sin(normal)
+        ]);
+        rightBoundary.push([
+            point[0] + width * Math.cos(normal + Math.PI) / cosineLatitude,
+            point[1] + width * Math.sin(normal + Math.PI)
+        ]);
+    });
+
+    return {
+        feature: {
+            type: 'Feature',
+            properties: {},
+            geometry: {
+                type: 'Polygon',
+                coordinates: [[...leftBoundary, ...rightBoundary.reverse(), leftBoundary[0]]]
+            }
+        },
+        current: forecastTrack[0],
+        target: forecastTrack[finalIndex]
+    };
+}
+
+function ensureInvestMapDefinitions(mapSvg, color) {
+    let defs = mapSvg.select('defs');
+    if (defs.empty()) defs = mapSvg.append('defs');
+
+    let hatch = defs.select('#invest-outlook-hatch');
+    if (hatch.empty()) {
+        hatch = defs.append('pattern')
+            .attr('id', 'invest-outlook-hatch')
+            .attr('patternUnits', 'userSpaceOnUse')
+            .attr('width', 10)
+            .attr('height', 10);
+        hatch.append('path')
+            .attr('d', 'M-2,2 L2,-2 M0,10 L10,0 M8,12 L12,8')
+            .attr('fill', 'none')
+            .attr('stroke-width', 2);
+    }
+    hatch.select('path').attr('stroke', color);
+
+    let arrow = defs.select('#invest-outlook-arrow');
+    if (arrow.empty()) {
+        arrow = defs.append('marker')
+            .attr('id', 'invest-outlook-arrow')
+            .attr('viewBox', '0 0 10 10')
+            .attr('refX', 8)
+            .attr('refY', 5)
+            .attr('markerWidth', 7)
+            .attr('markerHeight', 7)
+            .attr('orient', 'auto-start-reverse');
+        arrow.append('path').attr('d', 'M 0 0 L 10 5 L 0 10 z');
+    }
+    arrow.select('path').attr('fill', color);
+}
+
 export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
     if (!world || !mapSvg) return;
 
@@ -1020,25 +1141,62 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
 
     // 7. 预测路径 (Forecast)
     forecastLayer.selectAll("*").remove();
-    if (cyclone && cyclone.isInvest && cyclone.status === 'active' && typeof d3.geoCircle === 'function') {
-        const chance48h = Number.isFinite(Number(cyclone.investChance48h)) ? Number(cyclone.investChance48h) : Math.round(Math.max(0, Math.min(80, (Number(cyclone.investPotential) || 0) * 80)) / 5) * 5;
-        const chance7d = Number.isFinite(Number(cyclone.investChance7d)) ? Number(cyclone.investChance7d) : Math.round(Math.max(chance48h, Math.min(90, (Number(cyclone.investPotential) || 0) * 100 + 10)) / 5) * 5;
-        const outlookAreas = [
-            { label: '48H', chance: chance48h, radius: 2.5 + chance48h * 0.025, color: '#facc15' },
-            { label: '7D', chance: chance7d, radius: 4 + chance7d * 0.045, color: '#f59e0b' }
-        ];
-        outlookAreas.forEach(area => {
-            const feature = d3.geoCircle().center([cyclone.lon, cyclone.lat]).radius(area.radius).precision(4)();
+    if (cyclone && cyclone.isInvest && cyclone.status === 'active') {
+        const { chance48h, chance7d } = getInvestChancePair(cyclone);
+        const outlookColor = getInvestOutlookColor(chance7d);
+        const developmentArea = createInvestDevelopmentArea(cyclone, pathForecasts, chance7d);
+        if (developmentArea) {
+            ensureInvestMapDefinitions(mapSvg, outlookColor);
             forecastLayer.append('path')
-                .datum(feature)
+                .datum(developmentArea.feature)
                 .attr('class', 'invest-outlook-area')
                 .attr('d', pathGenerator)
-                .style('fill', area.color)
-                .style('fill-opacity', 0.12)
-                .style('stroke', area.color)
-                .style('stroke-width', 1.5)
-                .style('stroke-dasharray', area.label === '7D' ? '5,4' : null);
-        });
+                .style('fill', outlookColor)
+                .style('fill-opacity', 0.18)
+                .style('stroke', outlookColor)
+                .style('stroke-width', 2);
+            forecastLayer.append('path')
+                .datum(developmentArea.feature)
+                .attr('class', 'invest-outlook-hatch')
+                .attr('d', pathGenerator)
+                .style('fill', 'url(#invest-outlook-hatch)')
+                .style('fill-opacity', 0.9)
+                .style('stroke', 'none');
+
+            const arrowStart = mapProjection(developmentArea.current);
+            const arrowEnd = mapProjection(developmentArea.target);
+            if (arrowStart && arrowEnd) {
+                forecastLayer.append('line')
+                    .attr('class', 'invest-motion-arrow')
+                    .attr('x1', arrowStart[0])
+                    .attr('y1', arrowStart[1])
+                    .attr('x2', arrowEnd[0])
+                    .attr('y2', arrowEnd[1])
+                    .style('stroke', outlookColor)
+                    .style('stroke-width', 3)
+                    .style('stroke-linecap', 'round')
+                    .attr('marker-end', 'url(#invest-outlook-arrow)');
+            }
+
+            const areaLabelPosition = mapProjection(developmentArea.target);
+            if (areaLabelPosition) {
+                forecastLayer.append('text')
+                    .attr('class', 'invest-outlook-label')
+                    .attr('x', areaLabelPosition[0] + 5)
+                    .attr('y', areaLabelPosition[1] - 5)
+                    .style('fill', outlookColor)
+                    .style('font-family', 'monospace')
+                    .style('font-size', '9px')
+                    .style('font-weight', '900')
+                    .style('paint-order', 'stroke')
+                    .style('stroke', '#0f172a')
+                    .style('stroke-width', '3px')
+                    .text(`7-DAY FORMATION AREA • ${chance7d}%`);
+            }
+        }
+        // Keep the short-range chance visible in the map data even when the
+        // longer-range shaded area is the primary NHC-style graphic.
+        forecastLayer.append('title').text(`${cyclone.investDesignation || 'INVEST'}: 48-hour ${chance48h}%, 7-day ${chance7d}% formation chance`);
     }
     if (showPathForecast && pathForecasts && pathForecasts.length > 0) {
         drawForecastCone(forecastLayer, mapProjection, pathForecasts);
@@ -1152,6 +1310,39 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
         cycloneLayer.selectAll("*").remove();
     }
 
+    cycloneLayer.selectAll('.invest-cross')
+        .data(cyclone && cyclone.status === 'active' && cyclone.isInvest ? [cyclone] : [])
+        .join(
+            enter => {
+                const cross = enter.append('g')
+                    .attr('class', 'invest-cross')
+                    .style('pointer-events', 'none');
+                cross.append('line')
+                    .attr('class', 'invest-cross-line')
+                    .attr('x1', -8)
+                    .attr('y1', -8)
+                    .attr('x2', 8)
+                    .attr('y2', 8);
+                cross.append('line')
+                    .attr('class', 'invest-cross-line')
+                    .attr('x1', -8)
+                    .attr('y1', 8)
+                    .attr('x2', 8)
+                    .attr('y2', -8);
+                return cross;
+            },
+            update => update,
+            exit => exit.remove()
+        )
+        .attr('transform', d => {
+            const point = mapProjection([d.lon, d.lat]);
+            return point ? `translate(${point[0]},${point[1]})` : null;
+        })
+        .style('fill', 'none')
+        .style('stroke', '#111827')
+        .style('stroke-width', '3px')
+        .style('stroke-linecap', 'round');
+
     cycloneLayer.selectAll('.invest-label')
         .data(cyclone && cyclone.status === 'active' && cyclone.isInvest ? [cyclone] : [])
         .join(
@@ -1170,7 +1361,10 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
         )
         .attr('x', d => mapProjection([d.lon, d.lat])[0] + 11)
         .attr('y', d => mapProjection([d.lon, d.lat])[1] - 11)
-        .text(d => `${d.investDesignation || 'INVEST'} • ${Math.round(d.investChance7d || 0)}% 7D`);
+        .text(d => {
+            const chances = getInvestChancePair(d);
+            return `${d.investDesignation || 'INVEST'} • ${chances.chance7d}% 7D`;
+        });
 
     pressureHandlesLayer.selectAll("*").remove(); 
     

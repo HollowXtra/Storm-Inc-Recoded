@@ -304,15 +304,15 @@ world: null,
         const storedChance = period === '48h' ? cyclone?.investChance48h : cyclone?.investChance7d;
         if (Number.isFinite(Number(storedChance))) return Math.max(0, Math.min(100, Math.round(Number(storedChance))));
         const potential = Math.max(0, Math.min(1, Number(cyclone?.investPotential) || 0));
-        const chance48h = Math.round(Math.max(0, Math.min(80, potential * 80)) / 5) * 5;
+        const chance48h = Math.round(Math.max(0, Math.min(80, potential * 80)) / 10) * 10;
         return period === '48h'
             ? chance48h
-            : Math.round(Math.max(chance48h, Math.min(90, potential * 100 + 10)) / 5) * 5;
+            : Math.round(Math.max(chance48h, Math.min(90, potential * 100 + 10)) / 10) * 10;
     }
 
     function getInvestChanceLabel(percent) {
-        if (percent >= 60) return 'HIGH';
-        if (percent >= 30) return 'MEDIUM';
+        if (percent >= 70) return 'HIGH';
+        if (percent >= 40) return 'MEDIUM';
         return 'LOW';
     }
 
