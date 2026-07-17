@@ -1051,7 +1051,8 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
                 intensity: unwrappedTrack[i+1][2],
                 isT: unwrappedTrack[i+1][3],
                 isE: unwrappedTrack[i+1][4],
-                isS: unwrappedTrack[i+1][6]
+                isS: unwrappedTrack[i+1][6],
+                isInvest: unwrappedTrack[i+1][11] ?? cyclone.isInvest
             });
         }
 
@@ -1063,13 +1064,15 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
                 enter => enter.append("path")
                     .attr("class", "storm-track")
                     .attr("d", pathGenerator)
-                    .style("stroke", d => getCategory(d.intensity, d.isT, d.isE, d.isS).color),
+                    .style("stroke", d => d.isInvest ? "#f59e0b" : getCategory(d.intensity, d.isT, d.isE, d.isS).color)
+                    .style("stroke-dasharray", d => d.isInvest ? "5,4" : null),
                 
                 // Update: [核心修复] 更新现有元素时，必须同时更新形状 AND 颜色
                 // 否则复用的 DOM 会保留上一次模拟的颜色
                 update => update
                     .attr("d", pathGenerator)
-                    .style("stroke", d => getCategory(d.intensity, d.isT, d.isE, d.isS).color)
+                    .style("stroke", d => d.isInvest ? "#f59e0b" : getCategory(d.intensity, d.isT, d.isE, d.isS).color)
+                    .style("stroke-dasharray", d => d.isInvest ? "5,4" : null)
             );
 
         // 绘制节点 (同理，更新 update 逻辑)
@@ -1084,13 +1087,13 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
                         .attr("stroke-width", 1)
                         .attr("cx", d => mapProjection(d.slice(0, 2))[0])
                         .attr("cy", d => mapProjection(d.slice(0, 2))[1])
-                        .style("fill", d => getCategory(d[2], d[3], d[4], d[6]).color),
+                        .style("fill", d => (d[11] ?? cyclone.isInvest) ? "#f59e0b" : getCategory(d[2], d[3], d[4], d[6]).color),
                     
                     // [核心修复] Update 时也要更新位置 AND 颜色
                     update => update
                         .attr("cx", d => mapProjection(d.slice(0, 2))[0])
                         .attr("cy", d => mapProjection(d.slice(0, 2))[1])
-                        .style("fill", d => getCategory(d[2], d[3], d[4], d[6]).color)
+                        .style("fill", d => (d[11] ?? cyclone.isInvest) ? "#f59e0b" : getCategory(d[2], d[3], d[4], d[6]).color)
                 );
         } else {
             trackPointLayer.selectAll("*").remove();
@@ -1112,11 +1115,13 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
                     .attr("stroke-width", 1.5)
                     .attr("cx", d => mapProjection([d.lon, d.lat])[0])
                     .attr("cy", d => mapProjection([d.lon, d.lat])[1])
-                    .attr("fill", d => getCategory(d.intensity, d.isTransitioning, d.isExtratropical, d.isSubtropical).color),
+                    .attr("fill", d => d.isInvest ? "#f59e0b" : getCategory(d.intensity, d.isTransitioning, d.isExtratropical, d.isSubtropical).color)
+                    .attr("stroke", d => d.isInvest ? "#f5c542" : "white"),
                 update => update
                     .attr("cx", d => mapProjection([d.lon, d.lat])[0])
                     .attr("cy", d => mapProjection([d.lon, d.lat])[1])
-                    .attr("fill", d => getCategory(d.intensity, d.isTransitioning, d.isExtratropical, d.isSubtropical).color)
+                    .attr("fill", d => d.isInvest ? "#f59e0b" : getCategory(d.intensity, d.isTransitioning, d.isExtratropical, d.isSubtropical).color)
+                    .attr("stroke", d => d.isInvest ? "#f5c542" : "white")
                     .style("border-radius", "50%")
                     .attr("class", d => {
                         const isExtreme = d.intensity >= 96 && !d.isExtratropical;
@@ -1326,6 +1331,7 @@ export function drawFinalPath(mapSvg, mapProjection, cyclone, world, tooltip, si
             if (finalStats.stormSurge !== undefined) movementText += ` | Surge: ${Number(finalStats.stormSurge).toFixed(1)}m`;
             if (finalStats.tornadoes !== undefined) movementText += ` | Tornadoes: ${finalStats.tornadoes}`;
             if (finalStats.eyewallReplacements !== undefined) movementText += ` | ERC: ${finalStats.eyewallReplacements}`;
+            if (finalStats.investDesignation && finalStats.investStatus === 'dissipated') movementText += ` | ${finalStats.investDesignation} dissipated`;
             if (finalStats.retirementStatus === 'retirement-review') movementText += ' | Retirement review';
             movementEl.textContent = movementText;
             infoBox.classList.remove('hidden');

@@ -166,6 +166,9 @@ export function initializeCyclone(world, month, basin = 'WPAC', globalTemp, glob
 
     // --- Subtropical ---
     const initialSST = getSST(lat, lon, month, globalTemp);
+    const investPotential = Number(Math.max(0.05, Math.min(0.95,
+        0.45 + (initialSST - 25.4) * 0.12 - (globalShear || 0) * 0.0015
+    )).toFixed(2));
     let isSubtropical = false;
     let subtropicalTransitionTime = 0;
     if (initialSST < 27.5 && Math.random() < 0.75 && (lon > 122 || lon < 40)) {
@@ -194,6 +197,17 @@ export function initializeCyclone(world, month, basin = 'WPAC', globalTemp, glob
         nameLetter: null,
         nameIndex: null,
         named: false,
+        isInvest: true,
+        investStatus: 'investigating',
+        investDesignation: null,
+        investNumber: null,
+        investBasinCode: null,
+        investStartAge: 0,
+        investMinimumAge: 12,
+        investReviewWindow: 48,
+        investDecisionAge: null,
+        investPotential: investPotential,
+        investDissipationReason: '',
         age: 0,
         shearEventActive: false,
         shearEventEndTime: 0,
@@ -622,6 +636,8 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
     updatedCyclone.age += 3;
     if (!Array.isArray(updatedCyclone.hazardEvents)) updatedCyclone.hazardEvents = [];
     if (!Array.isArray(updatedCyclone.tornadoReports)) updatedCyclone.tornadoReports = [];
+    if (typeof updatedCyclone.isInvest !== 'boolean') updatedCyclone.isInvest = Boolean(!updatedCyclone.named && (updatedCyclone.investStatus === 'investigating' || updatedCyclone.investDesignation));
+    if (!updatedCyclone.investStatus) updatedCyclone.investStatus = updatedCyclone.isInvest ? 'investigating' : 'classified';
 
     // --- ACE Calculation ---
     if (updatedCyclone.age % 6 === 0 && updatedCyclone.intensity >= 34 && !updatedCyclone.isExtratropical) {
@@ -1000,7 +1016,7 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
     updatedCyclone.deaths = (updatedCyclone.deaths || 0) + impact.deaths;
     updatedCyclone.damage = (updatedCyclone.damage || 0) + impact.damage;
     
-    updatedCyclone.track.push([updatedCyclone.lon, updatedCyclone.lat, updatedCyclone.intensity, updatedCyclone.isTransitioning, updatedCyclone.isExtratropical, updatedCyclone.circulationSize, updatedCyclone.isSubtropical, radii34, radii50, radii64, Math.round(currentCentralPressure)]);
+    updatedCyclone.track.push([updatedCyclone.lon, updatedCyclone.lat, updatedCyclone.intensity, updatedCyclone.isTransitioning, updatedCyclone.isExtratropical, updatedCyclone.circulationSize, updatedCyclone.isSubtropical, radii34, radii50, radii64, Math.round(currentCentralPressure), updatedCyclone.isInvest]);
 
     if (updatedCyclone.intensity < 17 || (updatedCyclone.isExtratropical && updatedCyclone.intensity < 24) || updatedCyclone.lat > 70 || updatedCyclone.lat < -70) {
         updatedCyclone.status = 'dissipated';
@@ -1022,6 +1038,42 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
         }
     }
     
+    // INVEST lifecycle: an investigation remains unnamed until the system
+    // meets depression criteria or the investigation is closed.
+    if (updatedCyclone.isInvest) {
+        const investigationAge = updatedCyclone.age - (updatedCyclone.investStartAge || 0);
+        const minimumInvestAge = updatedCyclone.investMinimumAge || 12;
+        const investReviewWindow = updatedCyclone.investReviewWindow || 48;
+        const meetsDepressionCriteria = updatedCyclone.intensity >= 24 && !updatedCyclone.isExtratropical && !updatedCyclone.isTransitioning;
+        if (meetsDepressionCriteria && investigationAge >= minimumInvestAge) {
+            updatedCyclone.isInvest = false;
+            updatedCyclone.investStatus = updatedCyclone.intensity >= 34 ? 'named-storm' : 'tropical-depression';
+            updatedCyclone.investDecisionAge = updatedCyclone.age;
+            updatedCyclone.hazardEvents.push({
+                type: 'invest-classified',
+                age: updatedCyclone.age,
+                message: `${updatedCyclone.investDesignation || 'INVEST'} upgraded to ${updatedCyclone.investStatus === 'tropical-depression' ? 'Tropical Depression' : 'a named tropical storm'}.`
+            });
+        } else if (updatedCyclone.status === 'dissipated' || updatedCyclone.isExtratropical || investigationAge >= investReviewWindow) {
+            updatedCyclone.isInvest = false;
+            updatedCyclone.status = 'dissipated';
+            updatedCyclone.investStatus = 'dissipated';
+            updatedCyclone.investDecisionAge = updatedCyclone.age;
+            updatedCyclone.investDissipationReason = investigationAge >= investReviewWindow ? 'failed to organize within the investigation window' : updatedCyclone.isExtratropical ? 'transitioned away from a tropical investigation' : 'system dissipated';
+            updatedCyclone.hazardEvents.push({
+                type: 'invest-dissipated',
+                age: updatedCyclone.age,
+                message: `${updatedCyclone.investDesignation || 'INVEST'} investigation closed: ${updatedCyclone.investDissipationReason}.`
+            });
+        }
+    }
+
+    // The track point was created before the classification decision above;
+    // update its flag so ATCF and map products show the correct lifecycle phase.
+    if (updatedCyclone.track.length > 0) {
+        updatedCyclone.track[updatedCyclone.track.length - 1][11] = updatedCyclone.isInvest;
+    }
+
     if (!updatedCyclone.named && updatedCyclone.intensity >= 34 && !updatedCyclone.isExtratropical) {
         updatedCyclone.named = true;
         const basinKey = updatedCyclone.basin || 'WPAC';
@@ -1030,6 +1082,8 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
         updatedCyclone.nameLetter = meta.letter;
         updatedCyclone.nameIndex = meta.index;
         updatedCyclone.nameDesignation = meta.designation;
+        updatedCyclone.isInvest = false;
+        updatedCyclone.investStatus = 'named-storm';
         console.log(`System upgraded to Tropical Storm ${meta.letter}-${meta.name} (${meta.year}, ${basinKey})`);
     }
     

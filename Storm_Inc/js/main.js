@@ -4,7 +4,7 @@
  */
 
 // 从各模块导入函数
-import { getCategory, knotsToKph, knotsToMph, windToPressure, directionToCompass, getSST, calculateDistance, getPressureAt, RETIRED_STORM_NAMES } from './utils.js';
+import { getCategory, knotsToKph, knotsToMph, windToPressure, directionToCompass, getSST, calculateDistance, getPressureAt, RETIRED_STORM_NAMES, getInvestIdentifier } from './utils.js';
 import { RadarRenderer, calculateRadarDbz, getShaderWindVector } from './radar-system.js';
 import { DopplerRenderer } from './radar-doppler.js';
 // [新增] 导入卫星云图模块
@@ -239,6 +239,7 @@ world: null,
         history: [],
         simulationCount: 1,
         nextNameIndex: 0,
+        investSequence: 0,
         lastBasin: null,
         lastSeasonYear: null,
         selectedHistoryTrackData: '',
@@ -257,7 +258,8 @@ world: null,
     generateButton.disabled = true;
     // --- 初始化与设置 ---
 
-    function getEnglishCategoryName(knots, isExtra, isSub, basin) {
+    function getEnglishCategoryName(knots, isExtra, isSub, basin, isInvest = false) {
+        if (isInvest) return knots < 24 ? "INVESTIGATED DISTURBANCE" : "INVESTIGATED TROPICAL LOW";
         if (isExtra) return "EXTRATROPICAL CYCLONE";
         if (isSub) return "SUBTROPICAL STORM";
         if (knots < 34) return "TROPICAL DEPRESSION";
@@ -283,7 +285,12 @@ world: null,
 
     function getStormDisplayName(cyclone, fallbackNumber = '01') {
         if (!cyclone) return `TD ${fallbackNumber}`;
-        if (!cyclone.named || !cyclone.name) return `TD ${fallbackNumber}`;
+        if (!cyclone.named || !cyclone.name) {
+            if (cyclone.investDesignation && (cyclone.isInvest || cyclone.investStatus === 'dissipated')) {
+                return cyclone.investDesignation;
+            }
+            return `TD ${fallbackNumber}`;
+        }
         const prefix = cyclone.isExtratropical ? 'EX-' : (cyclone.isSubtropical ? 'SD ' : '');
         const letter = cyclone.nameLetter ? `${cyclone.nameLetter}-` : '';
         return `${prefix}${letter}${cyclone.name.toUpperCase()}`;
@@ -492,7 +499,11 @@ world: null,
         const basinCode = basinMap[currentBasin] || 'XX';
         
         // 气旋编号 (如果没有 finalStats，使用当前计数)
-        const cycloneNum = state.lastFinalStats ? state.lastFinalStats.number.split(' ')[1] : String(state.simulationCount).padStart(2, '0');
+        const cycloneNum = state.lastFinalStats
+            ? state.lastFinalStats.number.split(' ')[1]
+            : state.cyclone?.isInvest && state.cyclone.investNumber != null
+                ? String(state.cyclone.investNumber)
+                : String(state.simulationCount).padStart(2, '0');
         const stormName = `${getStormSeasonYear(state.cyclone)} ${getStormDisplayName(state.cyclone, cycloneNum)} (${basinCode} ${cycloneNum})`;
 
         // B. 遍历轨迹获取极值
@@ -683,7 +694,8 @@ world: null,
         }
     }
 
-    function getAtcfTypeCode(windKts, isExtratropical, isSubtropical) {
+    function getAtcfTypeCode(windKts, isExtratropical, isSubtropical, isInvest = false) {
+        if (isInvest) return windKts >= 24 ? 'DB' : 'LO';
         if (isSubtropical) {
             if (windKts < 34) return 'SD';
             return 'SS';
@@ -701,17 +713,21 @@ world: null,
         const basinMap = { 'WPAC': 'WP', 'EPAC': 'EP', 'NATL': 'AL', 'NIO': 'IO', 'SHEM': 'SH', 'SIO': 'SH', 'SATL': 'SL' };
         const basin = basinMap[cycloneInfo.basin] || 'WP';
         const cycloneNum = String(simulationCount).padStart(2, '0');
-        const startDate = new Date(Date.UTC(cycloneInfo.year, cycloneInfo.month - 1, 1));
+        const startDate = new Date(0);
+        startDate.setUTCHours(0, 0, 0, 0);
+        startDate.setUTCFullYear(cycloneInfo.year, cycloneInfo.month - 1, 1);
 
         return track.map((point, index) => {
             const currentDate = new Date(startDate);
             currentDate.setUTCHours(currentDate.getUTCHours() + index * 3);
 
             const dateString = `${currentDate.getUTCFullYear()}${String(currentDate.getUTCMonth() + 1).padStart(2, '0')}${String(currentDate.getUTCDate()).padStart(2, '0')}${String(currentDate.getUTCHours()).padStart(2, '0')}`;
-            const lat = `${Math.round(point[1] * 10)}N`;
-            let lonValue = point[0] > 180 ? 360 - point[0] : point[0];
-            let lonHemi = point[0] > 180 ? 'W' : 'E';
-            const lon = `${Math.round(lonValue * 10)}${lonHemi}`;
+            const latValue = Number(point[1]) || 0;
+            const lat = `${Math.round(Math.abs(latValue) * 10)}${latValue >= 0 ? 'N' : 'S'}`;
+            const rawLon = Number(point[0]) || 0;
+            const lonValue = rawLon > 180 ? 360 - rawLon : Math.abs(rawLon);
+            const lonHemi = rawLon < 0 || rawLon > 180 ? 'W' : 'E';
+            const lon = `${Math.round(lonValue * 10)}${lonHemi}`;
             const vmax = Math.round(point[2]);
             const circulationSize = point[5]; 
             let mslp;
@@ -723,10 +739,12 @@ world: null,
                 mslp = Math.round(windToPressure(vmax, circulationSize, cycloneInfo.basin, envP));
             }
             
-            const type = getAtcfTypeCode(vmax, point[4], point[6]);
+            const isInvestPoint = point[11] ?? cycloneInfo.isInvest;
+            const type = getAtcfTypeCode(vmax, point[4], point[6], isInvestPoint);
+            const trackNumber = isInvestPoint ? String(cycloneInfo.investNumber ?? 90) : cycloneNum;
 
             return [
-                basin.padEnd(2, ' '), cycloneNum.padStart(3, ' '), ` ${dateString}`, ' 00', ' BEST', '   0',
+                basin.padEnd(2, ' '), trackNumber.padStart(3, ' '), ` ${dateString}`, ' 00', ' BEST', '   0',
                 lat.padStart(6, ' '), lon.padStart(7, ' '), String(vmax).padStart(4, ' '),
                 String(mslp).padStart(5, ' '), ` ${type}`,
             ].join(',');
@@ -832,7 +850,7 @@ function updateWarningPanel() {
     const basin = cyclone.basin || basinSelector.value || 'WPAC';
     const stormName = getStormDisplayName(cyclone, String(state.simulationCount).padStart(2, '0'));
     const wind = Math.round(cyclone.intensity || 0);
-    const category = getEnglishCategoryName(wind, cyclone.isExtratropical, cyclone.isSubtropical, basin);
+    const category = getEnglishCategoryName(wind, cyclone.isExtratropical, cyclone.isSubtropical, basin, cyclone.isInvest);
     const seasonYear = getStormSeasonYear(cyclone);
     const advisoryNumber = String(Math.max(1, Math.floor((cyclone.age || 0) / 3) + 1)).padStart(2, '0');
     const validDate = getSimulationDate(cyclone, cyclone.age || 0, cyclone.currentMonth || state.currentMonth);
@@ -864,7 +882,9 @@ function updateWarningPanel() {
     const addProduct = (title, status, message, tone = 'red', icon = 'fa-triangle-exclamation') => products.push({ title, status, message, tone, icon });
     const watchOrWarning = siteDistance != null && siteDistance > 400 ? 'WATCH' : 'WARNING';
 
-    if (wind >= 64) {
+    if (cyclone.isInvest) {
+        addProduct('INVESTIGATION ACTIVE', 'MONITORING', `${stormName} is an area of disturbed weather under investigation. Model development potential is ${Math.round((cyclone.investPotential || 0) * 100)}%; no tropical-cyclone name has been assigned.`, 'yellow', 'fa-magnifying-glass');
+    } else if (wind >= 64) {
         addProduct(`${basin === 'WPAC' ? 'TYPHOON' : 'HURRICANE'} ${watchOrWarning}`, 'IN EFFECT', `${category} conditions are occurring or expected along the track. Maximum sustained winds are ${wind} kt.`, 'red', 'fa-wind');
     } else if (wind >= 34) {
         addProduct(`TROPICAL STORM ${watchOrWarning}`, 'IN EFFECT', `Tropical-storm-force winds are occurring or expected along the track. Maximum sustained winds are ${wind} kt.`, 'orange', 'fa-wind');
@@ -896,9 +916,9 @@ function updateWarningPanel() {
 
     const warningCount = products.filter(product => product.status === 'IN EFFECT').length;
     const watchCount = products.filter(product => product.title.includes('WATCH')).length;
-    const headlineProduct = products.find(product => product.status === 'IN EFFECT') || products.find(product => product.title.includes('WATCH'));
+    const headlineProduct = products.find(product => product.status === 'IN EFFECT') || products.find(product => product.title.includes('WATCH')) || products.find(product => product.title === 'INVESTIGATION ACTIVE') || products[0];
     const headlineText = headlineProduct
-        ? `${headlineProduct.title} ${headlineProduct.status === 'IN EFFECT' ? 'IN EFFECT' : 'ISSUED'} FOR ${areaText}`
+        ? `${headlineProduct.title} ${headlineProduct.status === 'IN EFFECT' ? 'IN EFFECT' : headlineProduct.status === 'MONITORING' ? 'UNDER INVESTIGATION' : 'ISSUED'} FOR ${areaText}`
         : `${stormName} IS BEING MONITORED — NO SIMULATED WATCHES OR WARNINGS IN EFFECT`;
     if (warningHeadline) {
         warningHeadline.className = `px-4 py-2 text-[10px] font-black uppercase tracking-wide ${warningCount > 0 ? 'bg-[#d71920] text-white' : watchCount > 0 ? 'bg-[#f5c542] text-slate-900' : 'bg-[#2563eb] text-white'}`;
@@ -1083,7 +1103,9 @@ function updateWarningPanel() {
     }
 
 function updateInfoPanel() {
-    const cat = getCategory(state.cyclone.intensity, state.cyclone.isTransitioning, state.cyclone.isExtratropical, state.cyclone.isSubtropical);
+    const cat = state.cyclone.isInvest
+        ? { name: getEnglishCategoryName(state.cyclone.intensity, state.cyclone.isExtratropical, state.cyclone.isSubtropical, state.cyclone.basin || basinSelector.value, true) }
+        : getCategory(state.cyclone.intensity, state.cyclone.isTransitioning, state.cyclone.isExtratropical, state.cyclone.isSubtropical);
     document.getElementById('simulationTime').textContent = `SIM T+${state.cyclone.age} 小时`;
     document.getElementById('latitude').textContent = `${state.cyclone.lat.toFixed(1)}°N`;
     document.getElementById('longitude').textContent = `${state.cyclone.lon.toFixed(1)}°E`;
@@ -1138,8 +1160,10 @@ function updateInfoPanel() {
         const stormName = getStormDisplayName(state.cyclone, cycloneNum);
         let statusText = "";
 
-        // 判定逻辑：只要巅峰风速达到过 34kt，或者已经获得命名(named标志位)
-        if (peakWindSoFar >= 34 || state.cyclone.named) {
+        // INVEST systems retain their operational identifier until classification.
+        if (state.cyclone.isInvest) {
+            statusText = getStormDisplayName(state.cyclone, cycloneNum);
+        } else if (peakWindSoFar >= 34 || state.cyclone.named) {
             // 已获得命名
             if (state.cyclone.intensity >= 34) {
                 // 当前仍是风暴级以上 -> 显示名字 (或 EX-名字)
@@ -1152,14 +1176,17 @@ function updateInfoPanel() {
             }
         } else {
             // 尚未获得命名 -> 显示编号 (TD 01)
-            if (state.cyclone.isExtratropical) statusText = `EX ${cycloneNum}`;
+            if (state.cyclone.investStatus === 'dissipated' && state.cyclone.investDesignation) statusText = `${state.cyclone.investDesignation} (DISSIPATED)`;
+            else if (state.cyclone.isExtratropical) statusText = `EX ${cycloneNum}`;
             else if (state.cyclone.isSubtropical) statusText = `SD ${cycloneNum}`;
             else statusText = `TD ${cycloneNum}`;
         }
         document.getElementById('status').textContent = statusText;
         const seasonBadge = document.getElementById('season-badge');
         if (seasonBadge) {
-            seasonBadge.textContent = `${getStormSeasonYear(state.cyclone)} SEASON • ${state.cyclone.nameLetter || '—'} LIST • ${state.cyclone.basin || basin}`;
+            seasonBadge.textContent = state.cyclone.isInvest
+                ? `${state.cyclone.investDesignation || 'INVEST'} • INVESTIGATION • ${getStormSeasonYear(state.cyclone)} SEASON • ${state.cyclone.basin || basin}`
+                : `${getStormSeasonYear(state.cyclone)} SEASON • ${state.cyclone.nameLetter || '—'} LIST • ${state.cyclone.basin || basin}`;
         }
 
         if (state.cyclone && state.pressureSystems) {
@@ -1233,7 +1260,9 @@ function updateInfoPanel() {
     }
 
     function updateMapInfoBox() {
-        const cat = getCategory(state.cyclone.intensity, state.cyclone.isTransitioning, state.cyclone.isExtratropical, state.cyclone.isSubtropical);
+        const cat = state.cyclone.isInvest
+            ? { shortName: 'INVEST' }
+            : getCategory(state.cyclone.intensity, state.cyclone.isTransitioning, state.cyclone.isExtratropical, state.cyclone.isSubtropical);
         document.getElementById('map-info-time').textContent = `T+${state.cyclone.age}h`;
         document.getElementById('map-info-intensity').textContent = `${cat.shortName} - ${state.cyclone.intensity.toFixed(0)}KT`;
         const centerEnvP = getPressureAt(state.cyclone.lon, state.cyclone.lat, state.pressureSystems);
@@ -1383,7 +1412,9 @@ function updateInfoPanel() {
             const cycloneInfo = {
                 basin: basinId,
                 month: state.currentMonth,
-                year: state.seasonYear
+                year: state.seasonYear,
+                isInvest: state.cyclone.isInvest,
+                investNumber: state.cyclone.investNumber
             };
             
             // 生成最佳路径文本
@@ -1422,7 +1453,9 @@ function updateInfoPanel() {
             let statusText = "";
 
             // 逻辑与 updateInfoPanel 完全一致
-            if (peakWind >= 34 || state.cyclone.named) {
+            if (state.cyclone.isInvest) {
+                statusText = getStormDisplayName(state.cyclone, cycloneNum);
+            } else if (peakWind >= 34 || state.cyclone.named) {
                 if (state.cyclone.intensity >= 34) {
                     statusText = stormName;
                 } else {
@@ -1430,6 +1463,8 @@ function updateInfoPanel() {
                     else if (state.cyclone.isSubtropical) statusText = `SD ${stormName}`;
                     else statusText = `TD ${stormName}`;
                 }
+            } else if (state.cyclone.investStatus === 'dissipated' && state.cyclone.investDesignation) {
+                statusText = `${state.cyclone.investDesignation} (DISSIPATED)`;
             } else {
                 if (state.cyclone.isExtratropical) statusText = `EX ${cycloneNum}`;
                 else if (state.cyclone.isSubtropical) statusText = `SD ${cycloneNum}`;
@@ -1438,7 +1473,9 @@ function updateInfoPanel() {
             // 更新 UI
             document.getElementById('status').textContent = statusText;
             const finalSeasonBadge = document.getElementById('season-badge');
-            if (finalSeasonBadge) finalSeasonBadge.textContent = `${getStormSeasonYear(state.cyclone)} SEASON • ${state.cyclone.nameLetter || '—'} LIST • ${basinId}`;
+            if (finalSeasonBadge) finalSeasonBadge.textContent = state.cyclone.isInvest
+                ? `${state.cyclone.investDesignation || 'INVEST'} • INVESTIGATION • ${getStormSeasonYear(state.cyclone)} SEASON • ${basinId}`
+                : `${getStormSeasonYear(state.cyclone)} SEASON • ${state.cyclone.nameLetter || '—'} LIST • ${basinId}`;
             document.getElementById('map-info-box').classList.add('hidden');
             
             // 重置按钮状态
@@ -1457,7 +1494,10 @@ function updateInfoPanel() {
 
             // 4. 创建最终统计对象 (使用 basinCode 组合编号, 如 "WP 01")
             const finalStats = {
-                number: `${basinCode} ${cycloneNumStr}`,
+                number: state.cyclone.investStatus === 'dissipated' && state.cyclone.investNumber != null ? `${basinCode} ${state.cyclone.investNumber}` : `${basinCode} ${cycloneNumStr}`,
+                investDesignation: state.cyclone.investDesignation,
+                investStatus: state.cyclone.investStatus,
+                investPotential: state.cyclone.investPotential,
                 peakWind: Math.round(peakWind),
                 minPressure: Math.round(minPressure),
                 ace: state.cyclone.ace.toFixed(2),
@@ -1717,6 +1757,7 @@ document.getElementById('warning-panel').classList.add('hidden');
         if (state.lastBasin !== selectedBasin || state.lastSeasonYear !== selectedYear) {
             // Annual lists are A/B/C ordered; do not randomize the first name.
             state.nextNameIndex = 0;
+            state.investSequence = 0;
         }
         state.lastBasin = selectedBasin;
         state.lastSeasonYear = selectedYear;
@@ -1736,12 +1777,21 @@ if (yearSelector) yearSelector.disabled = true;
         settingsMenu.classList.add('hidden'); // [修改] 开始模拟时隐藏菜单
 
         // [修改] 传递 GlobalTemp 到模型
+        const investIdentifier = getInvestIdentifier(selectedBasin, state.investSequence);
+        state.investSequence = (state.investSequence + 1) % 10;
         state.cyclone = initializeCyclone(state.world, state.currentMonth, selectedBasin, state.GlobalTemp, state.GlobalShear, state.customLon, state.customLat, state.seasonYear);
-        state.cyclone.track.push([state.cyclone.lon, state.cyclone.lat, state.cyclone.intensity, false, false, state.cyclone.circulationSize, state.cyclone.isSubtropical]);
+        state.cyclone.investNumber = investIdentifier.number;
+        state.cyclone.investBasinCode = investIdentifier.basinCode;
+        state.cyclone.investDesignation = investIdentifier.designation;
+        state.cyclone.isInvest = true;
+        state.cyclone.investStatus = 'investigating';
+        state.cyclone.track.push([state.cyclone.lon, state.cyclone.lat, state.cyclone.intensity, false, false, state.cyclone.circulationSize, state.cyclone.isSubtropical, 0, 0, 0, undefined, true]);
         state.pressureSystems = initializePressureSystems(state.cyclone, state.currentMonth, state.GlobalTemp, state.GlobalShear);
         state.frontalZone = updateFrontalZone(state.pressureSystems, state.currentMonth, state.GlobalTemp, state.GlobalShear);
         
         state.pathForecasts = generatePathForecasts(state.cyclone, state.pressureSystems, checkLandWrapper, state.GlobalTemp, state.GlobalShear);
+        updateInfoPanel();
+        updateMapInfoBox();
         updateToggleButtonVisual(togglePressureButton, state.showPressureField);
         updateToggleButtonVisual(toggleWindRadiiButton, state.showWindRadii);
         updateToggleButtonVisual(togglePathButton, state.showPathForecast);
@@ -2411,8 +2461,11 @@ if (yearSelector) yearSelector.disabled = true;
             const basin = targetCyclone.basin || basinSelector.value || 'WPAC';
             const wind = Math.round(point[2] || targetCyclone.intensity || 0);
             const pressure = Math.round(point[10] || windToPressure(wind, targetCyclone.circulationSize || 300, basin));
-            const category = getEnglishCategoryName(wind, point[4] ?? targetCyclone.isExtratropical, point[6] ?? targetCyclone.isSubtropical, basin);
-            const name = getStormDisplayName(targetCyclone, String(state.simulationCount).padStart(2, '0'));
+            const isInvestPoint = point[11] ?? targetCyclone.isInvest;
+            const category = getEnglishCategoryName(wind, point[4] ?? targetCyclone.isExtratropical, point[6] ?? targetCyclone.isSubtropical, basin, isInvestPoint);
+            const name = isInvestPoint && targetCyclone.investDesignation
+                ? targetCyclone.investDesignation
+                : getStormDisplayName(targetCyclone, String(state.simulationCount).padStart(2, '0'));
             const seasonYear = targetCyclone.seasonYear || state.seasonYear;
             const advisoryNumber = String(Math.max(1, renderIndex + 1)).padStart(2, '0');
             const valid = getSimulationDate(targetCyclone, targetAge, targetCyclone.currentMonth || state.currentMonth);
@@ -2436,7 +2489,9 @@ if (yearSelector) yearSelector.disabled = true;
             const products = [];
             const addProduct = (title, status, message, tone = 'red', icon = 'fa-triangle-exclamation') => products.push({ title, status, message, tone, icon });
 
-            if (wind >= 64) {
+            if (isInvestPoint) {
+                addProduct('INVESTIGATION ACTIVE', 'MONITORING', `${name} is an area of disturbed weather under investigation. Development potential is ${Math.round((targetCyclone.investPotential || 0) * 100)}%; no tropical-cyclone name has been assigned.`, 'yellow', 'fa-magnifying-glass');
+            } else if (wind >= 64) {
                 addProduct(`${basin === 'WPAC' ? 'TYPHOON' : 'HURRICANE'} WARNING`, 'IN EFFECT', `${category} conditions are occurring or expected along the track. Maximum sustained winds are ${wind} kt.`, 'red', 'fa-wind');
             } else if (wind >= 34) {
                 addProduct('TROPICAL STORM WARNING', 'IN EFFECT', `Tropical-storm-force winds are occurring or expected along the track. Maximum sustained winds are ${wind} kt.`, 'orange', 'fa-wind');
@@ -2461,7 +2516,7 @@ if (yearSelector) yearSelector.disabled = true;
 
             const headlineProduct = products.find(product => product.title.includes('WARNING')) || products.find(product => product.title.includes('WATCH')) || products[0];
             const headline = headlineProduct
-                ? `${headlineProduct.title} ${headlineProduct.status === 'IN EFFECT' ? 'IN EFFECT' : 'ISSUED'} FOR ${area}`
+                ? `${headlineProduct.title} ${headlineProduct.status === 'IN EFFECT' ? 'IN EFFECT' : headlineProduct.status === 'MONITORING' ? 'UNDER INVESTIGATION' : 'ISSUED'} FOR ${area}`
                 : `${name} IS BEING MONITORED — NO SIMULATED WATCHES OR WARNINGS IN EFFECT`;
             const toneStyles = {
                 red: { border: 'border-red-600', badge: 'bg-red-100 text-red-700', icon: 'text-red-600' },

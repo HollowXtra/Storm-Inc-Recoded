@@ -109,6 +109,29 @@ export function getNextStormNameMeta(basin = 'WPAC', index = 0, year = new Date(
     return getStormNameMeta(basin, index, year);
 }
 
+// INVEST identifiers use the operational 90–99 range and a basin suffix.
+// They are intentionally separate from the annual storm-name sequence.
+export const INVEST_BASIN_CODES = {
+    WPAC: 'W',
+    EPAC: 'E',
+    NATL: 'L',
+    NIO: 'A',
+    SIO: 'S',
+    SHEM: 'S',
+    SATL: 'Q'
+};
+
+export function getInvestIdentifier(basin = 'WPAC', sequence = 0) {
+    const safeSequence = Number.isFinite(Number(sequence)) ? Math.floor(Number(sequence)) : 0;
+    const number = 90 + ((safeSequence % 10) + 10) % 10;
+    const basinCode = INVEST_BASIN_CODES[basin] || 'W';
+    return {
+        number,
+        basinCode,
+        designation: `INVEST ${number}${basinCode}`
+    };
+}
+
 const NOISE_CONFIG = {
     seed: 12345.67, // 随机种子
     baseScale: 25,  // [关键] 基底噪声的尺度（越大越平滑），建议 20-40
