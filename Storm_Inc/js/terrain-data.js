@@ -2,6 +2,7 @@
  * terrain-data.js
  * 负责管理地形高程数据和陆地遮罩
  */
+import { clamp } from './utils.js';
 
 let elevationData = null; // 存储高程图像素数据 (RGBA)
 let landMaskData = null;  // 存储陆地遮罩像素数据 (Alpha channel only is enough, but we use RGBA)
@@ -88,8 +89,8 @@ function getPixelCoords(lon, lat) {
     let y = Math.floor(((90 - lat) / 180) * (mapHeight - 1));
 
     // 边界钳制
-    x = Math.max(0, Math.min(x, mapWidth - 1));
-    y = Math.max(0, Math.min(y, mapHeight - 1));
+    x = clamp(x, 0, mapWidth - 1);
+    y = clamp(y, 0, mapHeight - 1);
 
     return { x, y };
 }

@@ -111,6 +111,17 @@ export function calculateAtmosphericNoise(lon, lat) {
     return (base * NOISE_CONFIG.baseAmp) + (detail * NOISE_CONFIG.detailAmp);
 }
 
+export const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+// 极坐标投影：以某点为中心，按角度和距离(km)推算经纬度
+export const projectPoint = (centerLon, centerLat, angleRad, distKm) => {
+    const distDeg = distKm / 111.32;
+    const lonScale = 1.0 / Math.max(0.1, Math.cos(centerLat * Math.PI / 180));
+    const lon = centerLon + distDeg * Math.cos(angleRad) * lonScale;
+    const lat = centerLat + distDeg * Math.sin(angleRad);
+    return [lon, lat];
+};
+
 export const normalizeLongitude = (lon) => {
     // 健壮的标准化方法：确保结果在 [-180, 180] 之间
     let result = (lon + 180) % 360;
@@ -290,5 +301,5 @@ export function getSST(lat, lon, month, globalTempK = 289) {
     });
 
     baseSST += currentAdjustment;
-    return Math.max(0, Math.min(60, baseSST));
+    return clamp(baseSST, 0, 60);
 }

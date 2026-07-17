@@ -21,6 +21,21 @@ const checkLandWrapper = (lon, lat) => {
     return status.isLand; 
 };
 
+// 构建 drawMap 的通用图层/站点选项，避免在多处重复拼装同一份对象
+const buildMapOptions = (state, extra = {}) => ({
+    pressureSystems: state.pressureSystems,
+    showPressureField: state.showPressureField,
+    showHumidityField: state.showHumidityField,
+    showPathForecast: state.showPathForecast,
+    showWindRadii: state.showWindRadii,
+    siteName: state.siteName,
+    siteLon: state.siteLon,
+    siteLat: state.siteLat,
+    showPathPoints: state.showPathPoints,
+    showWindField: state.showWindField,
+    ...extra
+});
+
 document.addEventListener('DOMContentLoaded', () => {
 
     // --- DOM 元素与全局状态 ---
@@ -404,18 +419,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
 
         // 4. 绘制初始地图 (不需要等图片加载完，先画出来)
-        drawMap(mapSvg, mapProjection, state.world, {status: null, track: []}, {
-            pressureSystems: state.pressureSystems,
-            showPressureField: state.showPressureField,
-            showHumidityField: state.showHumidityField,
-            showPathForecast: state.showPathForecast,
-            showWindRadii: state.showWindRadii,
-            siteName: state.siteName,
-            siteLon: state.siteLon,
-            siteLat: state.siteLat,
-            showPathPoints: state.showPathPoints,
-            showWindField: state.showWindField
-        });
+        drawMap(mapSvg, mapProjection, state.world, {status: null, track: []}, buildMapOptions(state));
     });
     // 封装折叠/展开函数
     function toggleLeftPanel() {
@@ -1505,18 +1509,8 @@ updateWarningPanel();
             }
         }
 
-        drawMap(mapSvg, mapProjection, state.world, state.cyclone, {
+        drawMap(mapSvg, mapProjection, state.world, state.cyclone, buildMapOptions(state, {
             pathForecasts: state.pathForecasts,
-            pressureSystems: state.pressureSystems,
-            showPressureField: state.showPressureField,
-            showHumidityField: state.showHumidityField,
-            showPathForecast: state.showPathForecast,
-            showWindRadii: state.showWindRadii,
-            siteName: state.siteName,
-            siteLon: state.siteLon,
-            siteLat: state.siteLat,
-            showPathPoints: state.showPathPoints,
-            showWindField: state.showWindField,
             month: state.currentMonth,
             siteHistory: state.siteHistory,
             siteData: state.currentSiteData,
@@ -1524,7 +1518,7 @@ updateWarningPanel();
                 state.isSiteSelected = !state.isSiteSelected;
                 requestRedraw();
             }
-        });
+        }));
         
         if (state.cyclone.age % 3 === 0 && state.cyclone.age > 0) {
              const forecasts = generatePathForecasts(state.cyclone, state.pressureSystems, checkLandWrapper, state.GlobalTemp, state.GlobalShear);
@@ -2106,18 +2100,8 @@ document.getElementById('warning-panel').classList.add('hidden');
             setupCanvases();
              if (state.cyclone.status) {
                  updateStateSiteData();
-                 drawMap(mapSvg, mapProjection, state.world, state.cyclone, {
+                 drawMap(mapSvg, mapProjection, state.world, state.cyclone, buildMapOptions(state, {
                      pathForecasts: state.pathForecasts,
-                     pressureSystems: state.pressureSystems,
-                     showPressureField: state.showPressureField,
-                     showHumidityField: state.showHumidityField,
-                     showPathForecast: state.showPathForecast,
-                     showWindRadii: state.showWindRadii,
-                     siteName: state.siteName,
-                     siteLon: state.siteLon,
-                     siteLat: state.siteLat,
-                     showPathPoints: state.showPathPoints,
-                     showWindField: state.showWindField,
                      month: state.currentMonth,
                      siteHistory: state.siteHistory,
                      siteData: state.currentSiteData,
@@ -2125,7 +2109,7 @@ document.getElementById('warning-panel').classList.add('hidden');
                          state.isSiteSelected = !state.isSiteSelected;
                          requestRedraw();
                      }
-                 });
+                 }));
              }
              if (state.cyclone.status && state.cyclone.status !== 'active') {
                  drawHistoricalIntensityChart(chartContainer, state.cyclone.track, tooltip);

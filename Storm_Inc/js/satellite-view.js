@@ -2,6 +2,7 @@
  * js/satellite-view.js
  * 负责处理 WebGL 卫星云图渲染
  */
+import { clamp } from './utils.js';
 
 let gl, program;
 let startTime;
@@ -361,7 +362,7 @@ export function updateSatelliteView(intensityKnots, age, latitude, isExtratropic
         // ---------------------------------------------------
         
         // 钳制湿度输入范围，防止数值溢出
-        const effectiveHum = Math.max(30, Math.min(98, humidity));
+        const effectiveHum = clamp(humidity, 30, 98);
         
         // 线性方程：y = mx + c
         // (95, 0.45), (40, 1.35)
