@@ -2,7 +2,7 @@
  * cyclone-model.js
  * Core logic
  */
-import { NAME_LISTS, getSST, getPressureAt, normalizeLongitude, calculateDistance, windToPressure } from './utils.js';
+import { NAME_LISTS, getSST, getPressureAt, normalizeLongitude, calculateDistance, windToPressure, projectPoint, clamp } from './utils.js';
 import { getElevationAt, getLandStatus } from './terrain-data.js';
 import { calculateBackgroundHumidity } from './visualization.js';
 
@@ -794,7 +794,7 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
             dryAirFactor = (60 - effectiveHumidity) * 0.0002 * sizeSensitivity;
         }
         const currentSize = updatedCyclone.circulationSize || 300;
-        const clampedSize = Math.max(150, Math.min(500, currentSize));
+        const clampedSize = clamp(currentSize, 150, 500);
         const sizeFactor = 1.2 + (clampedSize - 150) * (0.8 - 1.2) / (500 - 150);
         updatedCyclone.intensity += (potentialChange - sizeFactor * shear - dryAirFactor);
     }
@@ -826,7 +826,7 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
     } else {
         updatedCyclone.circulationSize *= 1.002;
     }
-    updatedCyclone.circulationSize = Math.max(100, Math.min(updatedCyclone.circulationSize, 800));
+    updatedCyclone.circulationSize = clamp(updatedCyclone.circulationSize, 100, 800);
     updatedCyclone.intensity = Math.max(10, updatedCyclone.intensity);
     
     const currentSpeed = Math.max(2, updatedCyclone.speed);
@@ -848,23 +848,15 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
     const STEP_KM = 15;        
     const SCAN_ANGLE_STEP = 10; 
 
-    const getPointAt = (centerLon, centerLat, angleRad, distKm) => {
-        const distDeg = distKm / 111.32; 
-        const lonScale = 1.0 / Math.max(0.1, Math.cos(centerLat * Math.PI / 180));
-        const lon = centerLon + distDeg * Math.cos(angleRad) * lonScale;
-        const lat = centerLat + distDeg * Math.sin(angleRad);
-        return [lon, lat];
-    };
-
     const measureRadius = (angleRad, threshold) => {
-        const [startLon, startLat] = getPointAt(updatedCyclone.lon, updatedCyclone.lat, angleRad, RMW_KM);
+        const [startLon, startLat] = projectPoint(updatedCyclone.lon, updatedCyclone.lat, angleRad, RMW_KM);
         const startVec = getWindVectorAt(startLon, startLat, month, updatedCyclone, pressureSystems);
         if (startVec.magnitude < threshold) return 0;
 
         let currentDist = RMW_KM;
         while (currentDist < MAX_SEARCH_KM) {
             const nextDist = currentDist + STEP_KM;
-            const [lon, lat] = getPointAt(updatedCyclone.lon, updatedCyclone.lat, angleRad, nextDist);
+            const [lon, lat] = projectPoint(updatedCyclone.lon, updatedCyclone.lat, angleRad, nextDist);
             const vec = getWindVectorAt(lon, lat, month, updatedCyclone, pressureSystems);
             if (vec.magnitude < threshold) return currentDist;
             currentDist = nextDist;

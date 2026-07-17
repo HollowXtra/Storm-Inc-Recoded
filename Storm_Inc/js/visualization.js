@@ -2,7 +2,7 @@
  * visualization.js
  * 包含所有 D3.js 绘图函数。
  */
-import { getCategory, getPressureAt, windToPressure, directionToCompass, createGeoCircle, unwrapLongitude, calculateHollandPressure, getSST, calculateDistance } from './utils.js';
+import { getCategory, getPressureAt, windToPressure, directionToCompass, createGeoCircle, unwrapLongitude, calculateHollandPressure, getSST, calculateDistance, projectPoint, clamp } from './utils.js';
 import { getWindVectorAt } from './cyclone-model.js';
 import { generatePathForecasts } from './forecast-models.js';
 import { getElevationAt, getLandStatus } from './terrain-data.js';
@@ -111,7 +111,7 @@ export function calculateBackgroundHumidity(lon, lat, pressureSystems, currentMo
         const len = Math.sqrt(vec.u * vec.u + vec.v * vec.v);
         // 只有风速足够大才产生显著拖尾 (>10kt)
         let windWeight = (len - 15.0) / (30.0 - 15.0);
-        windWeight = Math.max(0, Math.min(1, windWeight)); // Clamp 到 0~1
+        windWeight = clamp(windWeight, 0, 1); // Clamp 到 0~1
 
         // 只有当有权重时才计算，节省性能
         if (windWeight > 0.01) {
@@ -167,7 +167,7 @@ export function calculateBackgroundHumidity(lon, lat, pressureSystems, currentMo
     }
 
     // 钳制背景湿度 (0% - 100%)
-    return Math.max(5, Math.min(100, hum));
+    return clamp(hum, 5, 100);
 }
 
 export function calculateTotalHumidity(lon, lat, pressureSystems, cyclone, globalTemp) {
@@ -201,7 +201,7 @@ export function calculateTotalHumidity(lon, lat, pressureSystems, cyclone, globa
     }
 
     // 钳制在 0-99 之间
-    return Math.max(10, Math.min(99, hum));
+    return clamp(hum, 10, 99);
 }
 
 // [修改] 绘制 850hPa 湿度场 (现在调用分离的逻辑)
@@ -223,7 +223,7 @@ export function drawHumidityField(container, mapProjection, pressureSystems, cyc
             }
             
             const finalHum = calculateTotalHumidity(coords[0], coords[1], pressureSystems, cyclone, globalTemp);
-            grid.push(Math.max(10, Math.min(99, finalHum)));
+            grid.push(clamp(finalHum, 10, 99));
         }
     }
 
@@ -266,25 +266,16 @@ function drawWindRadii(container, pathGenerator, cyclone, pressureSystems, isPau
         cyclone.radiiState = {};
     }
 
-    // 辅助：计算坐标
-    const getPointAt = (centerLon, centerLat, angleRad, distKm) => {
-        const distDeg = distKm / 111.32; 
-        const lonScale = 1.0 / Math.max(0.1, Math.cos(centerLat * Math.PI / 180));
-        const lon = centerLon + distDeg * Math.cos(angleRad) * lonScale;
-        const lat = centerLat + distDeg * Math.sin(angleRad);
-        return [lon, lat];
-    };
-
 // 辅助：物理探测
     const measureRadiusAtAngle = (angleRad, threshold) => {
-        const [peakLon, peakLat] = getPointAt(cyclone.lon, cyclone.lat, angleRad, RMW_KM);
+        const [peakLon, peakLat] = projectPoint(cyclone.lon, cyclone.lat, angleRad, RMW_KM);
         const peakVec = getWindVectorAt(peakLon, peakLat, currentMonth, cyclone, pressureSystems);
         
         if (peakVec.magnitude < threshold) return 0; 
 
         let currentDist = RMW_KM;
         while (currentDist < MAX_SEARCH_KM) {
-            const [sampleLon, sampleLat] = getPointAt(cyclone.lon, cyclone.lat, angleRad, currentDist);
+            const [sampleLon, sampleLat] = projectPoint(cyclone.lon, cyclone.lat, angleRad, currentDist);
             const vec = getWindVectorAt(sampleLon, sampleLat, currentMonth, cyclone, pressureSystems);
             if (vec.magnitude < threshold) return currentDist;
             currentDist += STEP_KM;
@@ -336,7 +327,7 @@ function drawWindRadii(container, pathGenerator, cyclone, pressureSystems, isPau
 
             // 绘图
             if (smoothedRadius < 5) {
-                const [cLon, cLat] = getPointAt(cyclone.lon, cyclone.lat, 0, 0);
+                const [cLon, cLat] = projectPoint(cyclone.lon, cyclone.lat, 0, 0);
                 polyPoints.push([cLon, cLat]);
                 return;
             }
@@ -345,7 +336,7 @@ function drawWindRadii(container, pathGenerator, cyclone, pressureSystems, isPau
 
             for (let angle = quad.start; angle <= quad.end; angle += DRAW_ARC_STEP) {
                 const angleRad = angle * (Math.PI / 180);
-                const [pLon, pLat] = getPointAt(cyclone.lon, cyclone.lat, angleRad, smoothedRadius);
+                const [pLon, pLat] = projectPoint(cyclone.lon, cyclone.lat, angleRad, smoothedRadius);
                 polyPoints.push([pLon, pLat]);
             }
         });
@@ -430,8 +421,8 @@ function checkLandFast(lon, lat) {
     let y = Math.floor((90 - lat) * (landGridHeight / 180));
     
     // 边界保护
-    x = Math.max(0, Math.min(x, landGridWidth - 1));
-    y = Math.max(0, Math.min(y, landGridHeight - 1));
+    x = clamp(x, 0, landGridWidth - 1);
+    y = clamp(y, 0, landGridHeight - 1);
     
     return landGrid[y * landGridWidth + x] === 1;
 }
@@ -2812,21 +2803,10 @@ export function renderJTWCStyle(cyclone, timeIndex, worldData) {
         forecastPath = forecastModels[0].track;
     }
 
-    // 辅助函数：大圆距离 (Haversine) - 如果外部已有 calculateDistance 可直接替换
-    const getDist = (lat1, lon1, lat2, lon2) => {
-        const R = 6371; // km
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-        return R * c;
-    };
-
     // 3. 计算指标
     const cityMetrics = cityDatabase.map(city => {
         // A. 当前距离
-        const currentDist = getDist(currentPoint[1], currentPoint[0], city.lat, city.lon);
+        const currentDist = calculateDistance(currentPoint[1], currentPoint[0], city.lat, city.lon);
         
         // B. CPA 插值计算 (点到线段的最短距离)
         let minCpa = currentDist; // 初始值为当前距离
@@ -2850,14 +2830,14 @@ export function renderJTWCStyle(cyclone, timeIndex, worldData) {
                 // 投影因子 t
                 const lenSq = dx*dx + dy*dy;
                 let t = (lenSq > 0) ? (cx*dx + cy*dy) / lenSq : 0;
-                t = Math.max(0, Math.min(1, t)); // 限制在线段内
+                t = clamp(t, 0, 1); // 限制在线段内
                 
                 // 找到最近点坐标
                 const closestLon = p1[0] + t * (p2[0] - p1[0]);
                 const closestLat = p1[1] + t * (p2[1] - p1[1]);
                 
                 // 计算实际距离
-                const segDist = getDist(city.lat, city.lon, closestLat, closestLon);
+                const segDist = calculateDistance(city.lat, city.lon, closestLat, closestLon);
                 if (segDist < minCpa) minCpa = segDist;
             }
         }
@@ -3063,7 +3043,7 @@ export function renderProbabilitiesStyle(cyclone, timeIndex, worldData, threshol
             if (baseIntensity > threshold) {
                 // 如果当前已经是 64kt+，预测更强则变大，预测弱则变小
                 const ratio = intensity / baseIntensity;
-                const clampedRatio = Math.max(0.5, Math.min(1.5, ratio));
+                const clampedRatio = clamp(ratio, 0.5, 1.5);
                 currentRadiusPx *= clampedRatio;
             } else {
                 // 如果当前未达标，但预测达标了，进行估算
@@ -3560,7 +3540,7 @@ export function renderPhaseSpace(cyclone, globalTemp = 289) { // <--- [修改] �
         }
 
         B = addNoise(B, 1.5, i);
-        B = Math.max(0, Math.min(60, B));
+        B = clamp(B, 0, 60);
 
         // ==========================================
         // B. Parameter -Vt (暖心) - [SST 核心修正]
@@ -3576,7 +3556,7 @@ export function renderPhaseSpace(cyclone, globalTemp = 289) { // <--- [修改] �
             
             // 计算公式：SST每下降1度，支持率线性下降
             // (sst - 18) / 16  => 26度时为1，18度时为0
-            let sstFactor = Math.max(0.3, Math.min(1.1, (sst - 18) / 16));
+            let sstFactor = clamp((sst - 18) / 16, 0.3, 1.1);
 
             // 如果是亚热带，本身就是浅暖心，SST影响稍小但依然存在
             if (isSub) sstFactor *= 0.8;
