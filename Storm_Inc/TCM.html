@@ -127,6 +127,19 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
+        /* ICWC 公告面板折叠状态: 只保留一条细横幅 */
+        #warning-panel[data-collapsed="true"] #warning-headline,
+        #warning-panel[data-collapsed="true"] #warning-list,
+        #warning-panel[data-collapsed="true"] .warning-footer {
+            display: none !important;
+        }
+        #warning-panel[data-collapsed="true"] {
+            width: auto;
+            max-width: 240px;
+            min-width: 190px;
+            cursor: pointer;
+        }
+
         /* 自定义滑块样式 */
         input[type=range] { -webkit-appearance: none; background: transparent; }
         input[type=range]::-webkit-slider-thumb {
@@ -247,6 +260,14 @@
             stroke: #475569;   /* Slate-500: 边界线 */
             stroke-width: 0.8px;
             vector-effect: non-scaling-stroke; /* 防止缩放时线条变粗 */
+        }
+
+        /* [新增] 地形就绪后: 陆地底色转半透明, 让地形着色 (山峦) 透出 */
+        #map-container.has-terrain .land {
+            fill: rgba(15, 23, 42, 0.15);
+        }
+        #ocean-canvas-layer {
+            z-index: 0;
         }
 
         /* 经纬网 */
@@ -412,13 +433,18 @@
                 <h3 id="warning-title" class="text-sm font-black uppercase tracking-wide mt-1">TROPICAL CYCLONE PUBLIC ADVISORY</h3>
                 <div id="warning-meta" class="text-[8px] text-slate-300 font-mono mt-1">AWAITING ADVISORY</div>
             </div>
-            <div id="warning-advisory-number" class="text-right text-[9px] font-black leading-tight whitespace-nowrap">ADVISORY<br>--</div>
+            <div class="flex flex-col items-end gap-1.5">
+                <div id="warning-advisory-number" class="text-right text-[9px] font-black leading-tight whitespace-nowrap">ADVISORY<br>--</div>
+                <button id="warning-collapse-btn" class="text-white/50 hover:text-white transition-colors cursor-pointer px-0.5" title="Collapse panel">
+                    <i class="fa-solid fa-chevron-up text-[10px]"></i>
+                </button>
+            </div>
         </div>
         <div id="warning-headline" class="px-4 py-2 bg-[#d71920] text-white text-[10px] font-black uppercase tracking-wide">MONITORING</div>
         <div id="warning-list" class="p-3 space-y-3 max-h-[calc(100vh-13rem)] overflow-y-auto no-scrollbar">
             <!-- Public advisory sections are inserted here. -->
         </div>
-        <div class="px-4 py-2 bg-slate-200 border-t border-slate-300 text-[8px] leading-relaxed text-slate-500 font-mono uppercase">
+        <div class="warning-footer px-4 py-2 bg-slate-200 border-t border-slate-300 text-[8px] leading-relaxed text-slate-500 font-mono uppercase">
             SIMULATOR PRODUCT • NOT A REAL-WORLD WARNING • FOLLOW LOCAL AUTHORITIES FOR ACTIONS
         </div>
     </div>

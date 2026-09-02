@@ -5,7 +5,7 @@
 import { getCategory, getPressureAt, windToPressure, directionToCompass, createGeoCircle, unwrapLongitude, calculateHollandPressure, getSST, calculateDistance } from './utils.js';
 import { getWindVectorAt } from './cyclone-model.js';
 import { generatePathForecasts } from './forecast-models.js';
-import { getElevationAt, getLandStatus } from './terrain-data.js';
+import { getElevationAt, getLandStatus, getTerrainTile } from './terrain-data.js';
 
 // [新增] 简单的伪随机噪声函数 (用于模拟大尺度湿度波动)
 function pseudoNoise(x, y) {
@@ -4860,4 +4860,122 @@ export function renderStationSynopticChart(cyclone, timeIndex, worldData, pressu
     ctx.fillText("STORM_INC®", width - 20, height - 10);
 
     return canvas;
+}
+// ============================================================
+// [新增] 世界地图海洋层: 动态水波 + 全地形着色
+// 一个位于 SVG 底下的 Canvas, 每帧读取等距投影参数,
+// 世界锚定地绘制海洋动态波纹, 并叠加地形瓦片 (陆地着色)
+// ============================================================
+let oceanLayerCtx = null;
+let oceanLayerCanvas = null;
+let oceanWaveTileA = null;
+let oceanWaveTileB = null;
+let oceanAnimFrame = null;
+
+// 生成可无缝平铺的水波纹理瓦片 (整数波数保证平铺无缝)
+function makeOceanWaveTile(w, h, seed) {
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(w, h);
+    const d = img.data;
+    // 整数波数: 水平 / 垂直方向均无缝
+    const fx1 = (2 * Math.PI * 6) / w, fy1 = (2 * Math.PI * 4) / h;
+    const fx2 = (2 * Math.PI * 11) / w, fy2 = (2 * Math.PI * 7) / h;
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const v = Math.sin(x * fx1 + y * fy1 + seed) * Math.cos(x * fx2 - y * fy2 + seed * 0.7);
+            const b = Math.pow(Math.max(0, v), 4); // 波光高亮
+            const i = (y * w + x) * 4;
+            d[i] = 155; d[i + 1] = 208; d[i + 2] = 255;
+            d[i + 3] = Math.round(b * 160);
+        }
+    }
+    ctx.putImageData(img, 0, 0);
+    return canvas;
+}
+
+export function initOceanLayer(container, projection) {
+    if (!container || oceanLayerCanvas) return;
+
+    oceanLayerCanvas = document.createElement('canvas');
+    oceanLayerCanvas.id = 'ocean-canvas-layer';
+    oceanLayerCanvas.className = 'absolute top-0 left-0 w-full h-full pointer-events-none';
+    container.appendChild(oceanLayerCanvas);
+    oceanLayerCtx = oceanLayerCanvas.getContext('2d');
+
+    oceanWaveTileA = makeOceanWaveTile(128, 80, 1.7);
+    oceanWaveTileB = makeOceanWaveTile(112, 72, 4.2);
+
+    const getProjection = typeof projection === 'function' ? projection : () => projection;
+
+    function frame(t) {
+        oceanAnimFrame = requestAnimationFrame(frame);
+        const proj = getProjection();
+        if (!proj || !oceanLayerCtx) return;
+
+        const dpr = window.devicePixelRatio || 1;
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        if (!w || !h) return;
+
+        if (oceanLayerCanvas.width !== Math.round(w * dpr) || oceanLayerCanvas.height !== Math.round(h * dpr)) {
+            oceanLayerCanvas.width = Math.round(w * dpr);
+            oceanLayerCanvas.height = Math.round(h * dpr);
+        }
+        const ctx = oceanLayerCtx;
+
+        // 1. 海洋底色 (带深度渐变)
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        const grad = ctx.createLinearGradient(0, 0, 0, h);
+        grad.addColorStop(0, '#0b1a2c');
+        grad.addColorStop(0.45, '#0d2034');
+        grad.addColorStop(1, '#0a1727');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, w, h);
+
+        // 2. 等距投影 -> 地形瓦片像素空间仿射变换
+        //    瓦片尺寸 WxH 覆盖 -180..180 / 90..-90; 每图像像素对应的屏幕尺寸 = 2πs/W (水平), πs/H (垂直)
+        const s = proj.scale();
+        const tx = proj.translate()[0];
+        const ty = proj.translate()[1];
+        const c = proj.center();
+        const RAD = Math.PI / 180;
+        const tile = getTerrainTile();
+        const tw = tile ? tile.width : 1080;
+        const th = tile ? tile.height : 540;
+        const scaleX = s * RAD * 360 / tw;
+        const scaleY = s * RAD * 180 / th;
+        const offX = tx + s * RAD * (-180 - c[0]);
+        const offY = ty + s * RAD * (c[1] - 90);
+
+        // 3. 动态水波 (世界锚定 + 缓慢漂移)
+        ctx.save();
+        ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, dpr * offX, dpr * offY);
+        ctx.globalAlpha = 0.22;
+        ctx.fillStyle = ctx.createPattern(oceanWaveTileA, 'repeat');
+        const d1x = (t * 0.03) % oceanWaveTileA.width;
+        const d1y = Math.sin(t * 0.0006) * 24;
+        ctx.save();
+        ctx.translate(d1x, d1y);
+        ctx.fillRect(-tw, -th, tw * 3, th * 3);
+        ctx.restore();
+
+        ctx.globalAlpha = 0.16;
+        ctx.fillStyle = ctx.createPattern(oceanWaveTileB, 'repeat');
+        const d2x = (t * 0.02) % oceanWaveTileB.width;
+        const d2y = Math.cos(t * 0.0005) * 30;
+        ctx.translate(d2x, d2y);
+        ctx.fillRect(-tw, -th, tw * 3, th * 3);
+        ctx.restore();
+
+        // 4. 地形瓦片 (陆地着色, 海洋透明)
+        if (tile) {
+            ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, dpr * offX, dpr * offY);
+            ctx.drawImage(tile, 0, 0);
+        }
+        ctx.restore();
+    }
+    oceanAnimFrame = requestAnimationFrame(frame);
 }

@@ -106,6 +106,68 @@ export function getElevationAt(lon, lat) {
     return (brightness / 255) * MAX_ELEVATION_METERS;
 }
 
+// 缓存的地形着色瓦片 (仅陆地, 海洋透明)
+let terrainTile = null;
+
+// 构建地形着色瓦片: 根据高程灰度 + 陆地遮罩生成暗色主题地形色带
+// 返回一个 1080x540 的 Canvas, 海洋部分完全透明, 可直接叠加到等距投影地图上
+export function getTerrainTile() {
+    if (!elevationData || !landMaskData) return null;
+    if (terrainTile) return terrainTile;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = mapWidth;
+    canvas.height = mapHeight;
+    const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(mapWidth, mapHeight);
+    const d = img.data;
+
+    // 地形色带 (暗色主题): 低地绿 -> 丘陵橄榄 -> 高地棕绿 -> 山地棕 -> 雪顶灰白
+    const stops = [
+        [0.00, 43, 66, 48],
+        [0.30, 66, 84, 58],
+        [0.55, 96, 92, 70],
+        [0.78, 118, 106, 86],
+        [0.92, 172, 176, 184]
+    ];
+    const last = stops[stops.length - 1];
+
+    for (let i = 0; i < elevationData.length; i++) {
+        const idx = i * 4;
+        const isLand = landMaskData[i] > 128;
+        const e = elevationData[i];
+        if (!isLand || e < 4) {
+            d[idx + 3] = 0; // 海洋透明
+            continue;
+        }
+        const t = Math.min(1, e / 255);
+        let r = stops[0][1], g = stops[0][2], b = stops[0][3];
+        if (t < stops[0][0]) {
+            // 低于最低档: 保持低地色
+        } else if (t >= last[0]) {
+            r = last[1]; g = last[2]; b = last[3];
+        } else {
+            for (let s = 0; s < stops.length - 1; s++) {
+                const lo = stops[s], hi = stops[s + 1];
+                if (t >= lo[0] && t < hi[0]) {
+                    const k = (t - lo[0]) / (hi[0] - lo[0]);
+                    r = Math.round(lo[1] + (hi[1] - lo[1]) * k);
+                    g = Math.round(lo[2] + (hi[2] - lo[2]) * k);
+                    b = Math.round(lo[3] + (hi[3] - lo[3]) * k);
+                    break;
+                }
+            }
+        }
+        d[idx] = r;
+        d[idx + 1] = g;
+        d[idx + 2] = b;
+        d[idx + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    terrainTile = canvas;
+    return canvas;
+}
+
 // 获取陆地状态 (包含 isLand 和 isNearLand)
 // nearThresholdDeg: 近岸判定阈值，单位度。默认 0.2 度
 export function getLandStatus(lon, lat, nearThresholdDeg = 0.2) {

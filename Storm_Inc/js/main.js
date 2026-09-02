@@ -13,7 +13,7 @@ import { initTerrainSystem, getElevationAt, getLandStatus } from './terrain-data
 import { initializeCyclone, initializePressureSystems, updatePressureSystems, updateFrontalZone, updateCycloneState, getWindVectorAt } from './cyclone-model.js';
 import { generatePathForecasts } from './forecast-models.js';
 // [修改] 引入新的历史强度图绘制函数
-import { drawMap, drawFinalPath, drawHistoricalIntensityChart, drawHumidityField, calculateBackgroundHumidity, calculateTotalHumidity, drawAllHistoryTracks, renderJTWCStyle, renderProbabilitiesStyle, drawStationGraph, renderPhaseSpace, startNewsAnimation, renderStationSynopticChart } from './visualization.js';
+import { drawMap, drawFinalPath, drawHistoricalIntensityChart, drawHumidityField, calculateBackgroundHumidity, calculateTotalHumidity, drawAllHistoryTracks, renderJTWCStyle, renderProbabilitiesStyle, drawStationGraph, renderPhaseSpace, startNewsAnimation, renderStationSynopticChart, initOceanLayer } from './visualization.js';
 import { playClick, playToggleOn, playToggleOff, playStart, playError, playAlert, playUpgradeSound, playCat5Sound, toggleSFX } from './audio.js';
 
 const checkLandWrapper = (lon, lat) => {
@@ -351,6 +351,9 @@ world: null,
         
         // B. 投影更新
         const { width, height } = mapContainer.node().getBoundingClientRect();
+
+        // [新增] 世界地图海洋层 (动态水波 + 全地形着色)
+        initOceanLayer(mapContainer.node(), () => mapProjection);
         let initLon = 120;
         let initLat = 15;
         if (typeof state !== 'undefined' && state.siteLon != null && state.siteLat != null) {
@@ -448,6 +451,9 @@ world: null,
             // A. JS 逻辑用的地形数据 (异步)
             initTerrainSystem(img.src, state.world).then(() => {
                 console.log("Terrain Logic Ready.");
+                // [新增] 标记地图容器: 地形瓦片就绪, 陆地改为半透明以显示地形着色
+                const mapContainerEl = document.getElementById('map-container');
+                if (mapContainerEl) mapContainerEl.classList.add('has-terrain');
                 generateButton.disabled = false;
             });
             
@@ -3595,6 +3601,33 @@ contentArea.innerHTML = `
     });
 
     closeJtwcModal.addEventListener('click', () => jtwcModal.classList.add('hidden'));
+
+    // [新增] ICWC 公告面板折叠 / 展开 (不再遮挡右侧地图)
+    const warningCollapseBtn = document.getElementById('warning-collapse-btn');
+    const warningPanelEl = document.getElementById('warning-panel');
+    if (warningCollapseBtn && warningPanelEl) {
+        const applyWarningCollapsed = (collapsed) => {
+            warningPanelEl.dataset.collapsed = String(collapsed);
+            const icon = warningCollapseBtn.querySelector('i');
+            if (icon) icon.className = collapsed ? 'fa-solid fa-chevron-down text-[10px]' : 'fa-solid fa-chevron-up text-[10px]';
+            warningCollapseBtn.title = collapsed ? 'Expand panel' : 'Collapse panel';
+            try { localStorage.setItem('tcs_warning_collapsed', String(collapsed)); } catch (e) { }
+        };
+        warningCollapseBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            applyWarningCollapsed(warningPanelEl.dataset.collapsed !== 'true');
+            if (typeof playClick === 'function') playClick();
+        });
+        // 点击折叠后的条带任意位置重新展开
+        warningPanelEl.addEventListener('click', (e) => {
+            if (warningPanelEl.dataset.collapsed === 'true' && !e.target.closest('#warning-collapse-btn')) {
+                applyWarningCollapsed(false);
+            }
+        });
+        let savedCollapsed = false;
+        try { savedCollapsed = localStorage.getItem('tcs_warning_collapsed') === 'true'; } catch (e) { }
+        if (savedCollapsed) applyWarningCollapsed(true);
+    }
     
     if (catButton && newsModal) {
         catButton.addEventListener('click', () => {

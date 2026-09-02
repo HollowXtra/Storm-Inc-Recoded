@@ -187,30 +187,46 @@ const fragmentShaderSource = `
             float internal_texture = fbm(central_mass_internal_noise_coords * 6.0);
             central_mass_value = central_mass_shape * (0.85 + internal_texture * 0.15);
         }
-        // ERC 期间旧 CDO 分解变淡, 让外眼墙环成为主导 (经典置换特征)
-        central_mass_value *= (1.0 - 0.65 * u_erc_strength);
+        // ERC 期间旧 CDO 从外向内逐渐分解 (早期保留内眼墙, 随外眼墙收缩而消散)
+        central_mass_value *= (1.0 - 0.7 * u_erc_strength * (0.3 + 0.7 * u_erc_contract));
+        // ERC 期间 CDO 收缩到内眼墙以内, 不再覆盖护城河与外眼墙区域
+        float moat_inner = u_eye_radius + 0.05;
+        float cdo_clip = 1.0 - smoothstep(moat_inner - 0.03, moat_inner + 0.03, dist);
+        central_mass_value *= mix(1.0, cdo_clip, u_erc_strength);
         
         noise_val = max(noise_val, central_mass_value);
 
-        // --- 眼墙置换 (ERC) 动画: 外眼墙环 + 内眼填塞 ---
+        // --- 眼墙置换 (ERC) 动画: 同心眼墙 + 护城河 + 内眼衰败 ---
         if (u_erc_strength > 0.001) {
-            // 外眼墙环: 从外围逐渐向内收缩 (u_erc_contract 0->1)
-            float erc_ring_radius = u_eye_radius + u_erc_radius * (1.0 - u_erc_contract);
-            float erc_ring_width = 0.032 + 0.02 * u_erc_contract;
-            float erc_ring = exp(-pow(dist - erc_ring_radius, 2.0) / (2.0 * erc_ring_width * erc_ring_width));
-            // 环的纹理化: 叠加高频噪声, 让新眼墙看起来是真实的云墙而非完美圆环
-            float ring_texture = fbm(uv * 6.0 + u_random_seed + u_time * 0.05);
-            erc_ring *= 0.85 + 0.15 * ring_texture;
-            // 环两侧渐隐, 避免生硬边缘
-            erc_ring *= smoothstep(0.0, 0.06, dist)
-                      * (1.0 - smoothstep(erc_ring_radius + 0.15, erc_ring_radius + 0.28, dist));
-            noise_val = max(noise_val, erc_ring * u_erc_strength);
+            // 外眼墙环半径 (随 u_erc_contract 0->1 向内收缩)
+            float outer_r = u_eye_radius + u_erc_radius * (1.0 - u_erc_contract);
+            float outer_w = 0.03 + 0.02 * u_erc_contract;
+            // 角度扰动: 外眼墙不是完美圆环, 更接近真实云墙
+            float outer_wob = fbm(vec2(cos(angle), sin(angle)) * 3.0 + u_random_seed + 5.0) - 0.5;
+            float ring_tex = fbm(uv * 6.0 + u_random_seed + u_time * 0.05);
+            float outer_ring = exp(-pow(dist - (outer_r + outer_wob * 0.05), 2.0) / (2.0 * outer_w * outer_w));
+            outer_ring *= 0.8 + 0.2 * ring_tex;
+            outer_ring *= smoothstep(0.0, 0.08, dist);
+            noise_val = max(noise_val, outer_ring * u_erc_strength);
 
-            // 内眼墙衰弱: 云层填塞原风眼 (旧眼模糊, 置换完成后重新露眼)
-            // 高斯型: 仅影响风眼及其紧邻区域, 随距离快速衰减
-            float erc_fill_radius = max(0.02, u_eye_radius + 0.06);
+            // 内眼墙环 (旧眼墙): 置换早期仍清晰, 随外眼墙收缩而衰败
+            float inner_ring = exp(-pow(dist - (u_eye_radius + 0.015), 2.0) / (2.0 * 0.022 * 0.022));
+            inner_ring *= 0.6 + 0.4 * fbm(uv * 7.0 + u_random_seed * 3.0);
+            inner_ring *= 1.0 - u_erc_contract;
+            noise_val = max(noise_val, inner_ring * u_erc_strength * 0.75);
+
+            // 护城河 (moat): 内外眼墙之间的暗隙, 抑制该区域深对流
+            float moat_inner = u_eye_radius + 0.05;
+            if (outer_r > moat_inner + 0.03) {
+                float moat_mask = smoothstep(moat_inner, moat_inner + 0.025, dist)
+                                * (1.0 - smoothstep(outer_r - 0.04, outer_r - 0.015, dist));
+                noise_val *= 1.0 - moat_mask * 0.6 * u_erc_strength;
+            }
+
+            // 内眼墙衰败: 云层填塞原风眼 (置换中眼模糊, 完成后新眼重新清晰)
+            float erc_fill_radius = max(0.02, u_eye_radius + 0.05);
             float erc_inner_fill = exp(-pow(dist / erc_fill_radius, 2.0) * 2.0) * u_erc_inner_fill * u_erc_strength;
-            noise_val = max(noise_val, erc_inner_fill * 0.85);
+            noise_val = max(noise_val, erc_inner_fill * 0.8);
         }
 
         // 增强螺旋雨带对比度: 突出亮带与暗隙, 更接近真实雨带结构
@@ -450,35 +466,35 @@ export function updateSatelliteView(intensityKnots, age, latitude, isExtratropic
     let sstThreshold = 27.0;
     let sstEffect = Math.max(0, (sstThreshold - sst) * 0.3);
     
-    target.cloudHigh += sstEffect;
-
-    // ============================================================
-    // 3. 眼墙置换 (ERC) 动画目标参数
-    //    contracting: 外眼墙环渐显 + 内眼填塞 (旧眼变模糊)
-    //    rebuilding : 外眼墙环向内收缩, 新眼重新清晰
-    //    complete   : 环淡出, 恢复单眼结构
-    // ============================================================
-    if (erc && erc.active) {
-        const p = Math.max(0, Math.min(1, erc.progress || 0));
-        if (erc.phase === 'contracting') {
-            const ramp = smoothstep(0.0, 0.35, p);
-            target.ercStrength = ramp;
-            target.ercContract = 0.0;
-            target.ercInnerFill = ramp * 0.9;
-        } else if (erc.phase === 'rebuilding') {
-            target.ercStrength = 1.0;
-            target.ercContract = smoothstep(0.0, 1.0, p);
-            target.ercInnerFill = 0.9 * (1.0 - smoothstep(0.0, 0.8, p));
-        } else { // 'complete'
+    target.cloudHigh += sstEffect;        // ============================================================
+        // 3. 眼墙置换 (ERC) 动画目标参数
+        //    contracting: 外眼墙环渐显 + 内眼填塞 (旧眼变模糊), 同心眼墙
+        //    rebuilding : 外眼墙环向内收缩, 旧内眼墙衰败, 新眼重新清晰
+        //    complete   : 环淡出, 恢复单眼结构
+        // ============================================================
+        if (erc && erc.active) {
+            const p = Math.max(0, Math.min(1, erc.progress || 0));
+            if (erc.phase === 'contracting') {
+                const ramp = smoothstep(0.0, 0.35, p);
+                target.ercStrength = ramp;
+                target.ercContract = 0.0;
+                target.ercInnerFill = ramp * 0.8;
+            } else if (erc.phase === 'rebuilding') {
+                target.ercStrength = 1.0;
+                target.ercContract = smoothstep(0.0, 1.0, p);
+                target.ercInnerFill = 0.8 * (1.0 - smoothstep(0.0, 0.75, p));
+            } else { // 'complete'
+                target.ercStrength = 0.0;
+                target.ercContract = 1.0;
+                target.ercInnerFill = 0.0;
+            }
+            // ERC 期间云场略微扩张 (真实风暴置换时云罩变大且松散)
+            target.stormRadius *= (1.0 + 0.15 * target.ercStrength);
+        } else {
             target.ercStrength = 0.0;
             target.ercContract = 1.0;
             target.ercInnerFill = 0.0;
         }
-    } else {
-        target.ercStrength = 0.0;
-        target.ercContract = 1.0;
-        target.ercInnerFill = 0.0;
-    }
 
     const smoothFactor = 0.25;
 
