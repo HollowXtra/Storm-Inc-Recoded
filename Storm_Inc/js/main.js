@@ -1160,6 +1160,130 @@ function updateWarningPanel() {
         }, 6000);
     }
 
+    // ============================================================
+    // [改版] 死亡 / 损失计数器: 滚动数字动画 + 严重程度着色
+    // ============================================================
+    const displayedImpact = { deaths: 0, damage: 0 };
+    let impactAnimFrame = null;
+
+    const IMPACT_STYLES = {
+        deaths: {
+            cardBase: 'relative flex flex-col items-center gap-1 bg-gradient-to-b from-red-950/30 to-red-950/5 border p-2 overflow-hidden transition-colors duration-500',
+            thresholds: [1, 10, 100, 1000],
+            labels: ['NO IMPACT', 'LOW', 'MODERATE', 'SEVERE', 'CATASTROPHIC'],
+            number: [
+                'font-mono text-xl font-black leading-none text-slate-400',
+                'font-mono text-xl font-black leading-none text-red-300 drop-shadow-[0_0_6px_rgba(248,113,113,0.35)]',
+                'font-mono text-xl font-black leading-none text-orange-300 drop-shadow-[0_0_6px_rgba(251,146,60,0.35)]',
+                'font-mono text-xl font-black leading-none text-red-400 drop-shadow-[0_0_8px_rgba(248,113,113,0.5)]',
+                'font-mono text-xl font-black leading-none text-red-500 drop-shadow-[0_0_10px_rgba(239,68,68,0.7)]'
+            ],
+            border: [
+                'border-red-500/10', 'border-red-500/30', 'border-orange-500/40',
+                'border-red-500/50', 'border-red-500/80'
+            ]
+        },
+        damage: {
+            cardBase: 'relative flex flex-col items-center gap-1 bg-gradient-to-b from-amber-950/30 to-amber-950/5 border p-2 overflow-hidden transition-colors duration-500',
+            thresholds: [1, 500, 1000, 10000],
+            labels: ['NO IMPACT', 'MINOR', 'MODERATE', 'SEVERE', 'CATASTROPHIC'],
+            number: [
+                'font-mono text-xl font-black leading-none text-slate-400',
+                'font-mono text-xl font-black leading-none text-amber-200',
+                'font-mono text-xl font-black leading-none text-amber-300 drop-shadow-[0_0_6px_rgba(251,191,36,0.35)]',
+                'font-mono text-xl font-black leading-none text-orange-300 drop-shadow-[0_0_8px_rgba(251,146,60,0.5)]',
+                'font-mono text-xl font-black leading-none text-red-400 drop-shadow-[0_0_10px_rgba(248,113,113,0.6)]'
+            ],
+            border: [
+                'border-amber-500/10', 'border-amber-500/25', 'border-amber-500/40',
+                'border-orange-500/60', 'border-red-500/80'
+            ]
+        }
+    };
+
+    function formatDamageM(millions) {
+        if (millions >= 1000) return `$${(millions / 1000).toFixed(1)}B`;
+        return `$${millions.toFixed(0)}M`;
+    }
+
+    function getImpactLevel(style, value) {
+        let level = 0;
+        for (let i = 0; i < style.thresholds.length; i++) {
+            if (value >= style.thresholds[i]) level = i + 1;
+        }
+        return level;
+    }
+
+    function applyImpactStyle(type, value) {
+        const style = IMPACT_STYLES[type];
+        const level = getImpactLevel(style, value);
+        const card = document.getElementById(`${type}-card`);
+        const num = document.getElementById(type);
+        const sev = document.getElementById(`${type}-severity`);
+        if (!card || !num || !sev) return;
+        card.className = `${style.cardBase} ${style.border[level]}`;
+        num.className = style.number[level];
+        sev.textContent = style.labels[level];
+        sev.className = `text-[7px] font-bold tracking-widest uppercase ${level === 0 ? 'text-slate-600' : 'text-slate-300'}`;
+    }
+
+    function animateImpactNumbers(deathsTarget, damageTarget) {
+        // 目标未变化且动画仍在进行时, 让它自然跑完
+        if (impactAnimFrame && displayedImpact.deaths === deathsTarget && displayedImpact.damage === damageTarget) return;
+
+        const from = { deaths: displayedImpact.deaths, damage: displayedImpact.damage };
+        const to = { deaths: deathsTarget, damage: damageTarget };
+        if (impactAnimFrame) cancelAnimationFrame(impactAnimFrame);
+
+        const ANIM_MS = 800;
+        const start = performance.now();
+        const tick = (now) => {
+            const k = Math.min(1, (now - start) / ANIM_MS);
+            const eased = 1 - Math.pow(1 - k, 3);
+            displayedImpact.deaths = Math.round(from.deaths + (to.deaths - from.deaths) * eased);
+            displayedImpact.damage = Math.round(from.damage + (to.damage - from.damage) * eased);
+            const deathsEl = document.getElementById('deaths');
+            const damageEl = document.getElementById('damage');
+            if (deathsEl) deathsEl.textContent = displayedImpact.deaths.toLocaleString();
+            if (damageEl) damageEl.textContent = formatDamageM(displayedImpact.damage);
+            if (k < 1) {
+                impactAnimFrame = requestAnimationFrame(tick);
+            } else {
+                impactAnimFrame = null;
+                displayedImpact.deaths = to.deaths;
+                displayedImpact.damage = to.damage;
+            }
+        };
+        impactAnimFrame = requestAnimationFrame(tick);
+    }
+
+    // ============================================================
+    // [新增] 眼墙置换 (ERC) 卫星动画: 进度跟踪
+    // ============================================================
+    const ercTrack = { phase: null, startAge: null };
+    function computeErcProgress(cyclone) {
+        const phase = cyclone.eyewallReplacementPhase || 'none';
+        // 相位切换时记录起始时间 (用于计算该相位内的 0..1 进度)
+        if (phase !== ercTrack.phase) {
+            ercTrack.phase = phase;
+            ercTrack.startAge = cyclone.age;
+        }
+        if (phase === 'none') {
+            return { active: false, phase: 'none', progress: 0, count: cyclone.eyewallReplacementCount || 0 };
+        }
+        if (phase === 'complete') {
+            return { active: false, phase: 'complete', progress: 1, count: cyclone.eyewallReplacementCount || 0 };
+        }
+        const duration = Math.max(1, (cyclone.ercEndTime || cyclone.age + 12) - ercTrack.startAge);
+        const progress = Math.max(0, Math.min(1, (cyclone.age - ercTrack.startAge) / duration));
+        return {
+            active: true,
+            phase,
+            progress,
+            count: cyclone.eyewallReplacementCount || 0
+        };
+    }
+
 function updateInfoPanel() {
     const cat = state.cyclone.isInvest
         ? { name: getEnglishCategoryName(state.cyclone.intensity, state.cyclone.isExtratropical, state.cyclone.isSubtropical, state.cyclone.basin || basinSelector.value, true) }
@@ -1175,21 +1299,12 @@ function updateInfoPanel() {
     document.getElementById('ace').textContent = state.cyclone.ace.toFixed(2);
     document.getElementById('direction').textContent = `${directionToCompass(state.cyclone.direction)}`;
     document.getElementById('speed').textContent = `${state.cyclone.speed.toFixed(0)} kts`;
-    // [新增] 更新死亡和损失计数器
-    const deathsEl = document.getElementById('deaths');
-    const damageEl = document.getElementById('damage');
-    if (deathsEl) {
-        const deaths = state.cyclone.deaths || 0;
-        deathsEl.textContent = deaths.toLocaleString();
-    }
-    if (damageEl) {
-        const damage = state.cyclone.damage || 0;
-        if (damage >= 1000) {
-            damageEl.textContent = `$${(damage / 1000).toFixed(1)}B`;
-        } else {
-            damageEl.textContent = `$${damage.toFixed(0)}M`;
-        }
-    }
+    // [改版] 更新死亡和损失计数器 (滚动数字 + 严重程度着色)
+    const deaths = state.cyclone.deaths || 0;
+    const damage = state.cyclone.damage || 0;
+    animateImpactNumbers(deaths, damage);
+    applyImpactStyle('deaths', deaths);
+    applyImpactStyle('damage', damage);
     const surgeEl = document.getElementById('storm-surge');
     const tornadoEl = document.getElementById('tornadoes');
     const ercEl = document.getElementById('eyewall-status');
@@ -1282,7 +1397,8 @@ function updateInfoPanel() {
             effectiveHumidity = (minEnvHumidity * 0.4) + (avgEnvHumidity * 0.6);
         }
 
-        // 3. 调用 updateSatelliteView (传入计算好的 effectiveHumidity)
+        // 3. 调用 updateSatelliteView (传入计算好的 effectiveHumidity + ERC 动画状态)
+        const ercSatState = computeErcProgress(state.cyclone);
         updateSatelliteView(
             state.cyclone.intensity, 
             state.cyclone.age, 
@@ -1291,7 +1407,8 @@ function updateInfoPanel() {
             state.cyclone.isSubtropical,
             isLand,
             currentSST,
-            effectiveHumidity // <--- 使用加权后的湿度
+            effectiveHumidity, // <--- 使用加权后的湿度
+            ercSatState
         );
         
         if (state.cyclone.age % 6 === 0) {

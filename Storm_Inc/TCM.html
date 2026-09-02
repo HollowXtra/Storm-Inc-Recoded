@@ -578,7 +578,13 @@
                     </button>
                     
                     <canvas id="satCanvas" class="w-full h-full object-cover opacity-90 group-hover:opacity-100 transition-opacity filter contrast-125"></canvas>
-                    <div class="scanline absolute inset-0 pointer-events-none opacity-30"></div>
+                    <div class="scanline absolute inset-0 pointer-events-none opacity-15"></div>
+                    <!-- [新增] IR 温度刻度条 (真实卫星产品样式) -->
+                    <div class="absolute bottom-0 inset-x-0 z-10 flex items-center gap-1.5 px-2 pb-1.5 pt-4 bg-gradient-to-t from-black/70 to-transparent">
+                        <span class="text-[7px] font-mono text-white/60 tracking-widest shrink-0">+30°C</span>
+                        <div class="flex-1 h-1.5 rounded-sm overflow-hidden border border-white/25 shadow-[0_0_6px_rgba(0,0,0,0.6)]" style="background: linear-gradient(to right, #020a1e 0%, #171c30 18%, #5c667e 42%, #b8c4dc 66%, #f5faff 86%, #ff9ea8 98%);"></div>
+                        <span class="text-[7px] font-mono text-white/60 tracking-widest shrink-0">-90°C</span>
+                    </div>
                 </div>
 
                 <!-- [新增] 恢复按钮 (Collapsed State) (修改：添加 onclick) -->
@@ -648,14 +654,22 @@
                                 <span data-t="ace_index">ACE Index:</span>
                                 <span id="ace" class="text-white font-bold">0.0</span>
                             </div>
-                            <!-- [新增] 死亡和损失计数器 -->
-                            <div class="flex justify-between border-t border-white/10 pt-1 mt-1">
-                                <span><i class="fa-solid fa-skull mr-1 text-red-500"></i>Deaths:</span>
-                                <span id="deaths" class="text-red-400 font-bold">0</span>
-                            </div>
-                            <div class="flex justify-between">
-                                <span><i class="fa-solid fa-dollar-sign mr-1 text-yellow-500"></i>Damage:</span>
-                                <span id="damage" class="text-yellow-400 font-bold">$0M</span>
+                            <!-- [改版] 死亡 / 损失 影响统计卡片 -->
+                            <div class="grid grid-cols-2 gap-2 border-t border-white/10 pt-2 mt-1">
+                                <div id="deaths-card" class="relative flex flex-col items-center gap-1 bg-gradient-to-b from-red-950/30 to-red-950/5 border border-red-500/20 p-2 overflow-hidden">
+                                    <div class="flex items-center gap-1.5 text-[8px] font-bold text-red-400 tracking-widest">
+                                        <i class="fa-solid fa-skull"></i><span>DEATHS</span>
+                                    </div>
+                                    <div id="deaths" class="font-mono text-xl font-black text-red-300 leading-none drop-shadow-[0_0_6px_rgba(248,113,113,0.35)]">0</div>
+                                    <div id="deaths-severity" class="text-[7px] font-bold tracking-widest text-slate-600 uppercase">No Impact</div>
+                                </div>
+                                <div id="damage-card" class="relative flex flex-col items-center gap-1 bg-gradient-to-b from-amber-950/30 to-amber-950/5 border border-amber-500/20 p-2 overflow-hidden">
+                                    <div class="flex items-center gap-1.5 text-[8px] font-bold text-amber-400 tracking-widest">
+                                        <i class="fa-solid fa-sack-dollar"></i><span>DAMAGE</span>
+                                    </div>
+                                    <div id="damage" class="font-mono text-xl font-black text-amber-300 leading-none drop-shadow-[0_0_6px_rgba(251,191,36,0.35)]">$0M</div>
+                                    <div id="damage-severity" class="text-[7px] font-bold tracking-widest text-slate-600 uppercase">No Impact</div>
+                                </div>
                             </div>
                             <div class="flex justify-between">
                                 <span><i class="fa-solid fa-water mr-1 text-blue-400"></i>Storm Surge:</span>
