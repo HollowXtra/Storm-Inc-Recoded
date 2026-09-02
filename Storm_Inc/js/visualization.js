@@ -1081,7 +1081,11 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
 
     // 3. 气旋中心定位逻辑 (仅在 active 状态且有坐标时执行)
     if (cyclone && cyclone.status === 'active' && isFinite(cyclone.lon)) {
-        mapProjection.center([cyclone.lon, cyclone.lat]).translate([width / 2, height / 2]);
+        // [修复] 重置历史/结束视图遗留的旋转与缩放, 确保活动模拟使用标准视野
+        mapProjection.rotate([0, 0])
+            .scale(height / (20 * Math.PI / 180))
+            .center([cyclone.lon, cyclone.lat])
+            .translate([width / 2, height / 2]);
     }
 
     // ============================================================
@@ -1498,6 +1502,40 @@ function drawSiteMarker(container, projection, name, lon, lat, data, history, on
     // [已删除] 旧的折线图绘制逻辑 (drawSiteChart 调用)
 }
 
+// [新增] 以路径为中心定位等距投影并缩放适配
+// 等距投影下 center([lon, lat]) 与 rotate([-lon, -lat]).center([0,0]) 完全等价,
+// 但不会在投影上残留旋转状态 (旋转会破坏世界锚定的海洋/地形图层, 并影响下一次模拟)。
+// 解析计算包围盒与缩放: d3 的 fitExtent/投影会将经度归一化到 ±180, 跨日界线路径会被错误拉宽。
+function centerProjectionOnTrack(mapProjection, points, extent) {
+    if (!mapProjection || !points || points.length === 0) return;
+    const RAD = Math.PI / 180;
+
+    // 解析计算解包坐标的经纬度范围
+    let minLon = Infinity, maxLon = -Infinity, minLat = Infinity, maxLat = -Infinity;
+    for (const p of points) {
+        if (p[0] < minLon) minLon = p[0];
+        if (p[0] > maxLon) maxLon = p[0];
+        if (p[1] < minLat) minLat = p[1];
+        if (p[1] > maxLat) maxLat = p[1];
+    }
+    if (!isFinite(minLon) || !isFinite(minLat) || !isFinite(maxLon) || !isFinite(maxLat)) return;
+    // 以包围盒中心为视角中心 (比平均值更对称)
+    const centerLon = (minLon + maxLon) / 2;
+    const centerLat = (minLat + maxLat) / 2;
+    // 归一化中心经度 (解包坐标可能超过 ±180)
+    const normLon = ((centerLon + 180) % 360 + 360) % 360 - 180;
+
+    const lonSpan = Math.max(1, maxLon - minLon);
+    const latSpan = Math.max(1, maxLat - minLat);
+    const [ex0, ey0] = extent[0];
+    const [ex1, ey1] = extent[1];
+    // 等距投影线性公式: x = tx + scale*(lon - normLon)*RAD, y = ty - scale*(lat - centerLat)*RAD
+    const scale = Math.min((ex1 - ex0) / (lonSpan * RAD), (ey1 - ey0) / (latSpan * RAD));
+    const tx = (ex0 + ex1) / 2 - scale * ((centerLon - normLon) * RAD);
+    const ty = (ey0 + ey1) / 2;
+    mapProjection.rotate([0, 0]).center([normLon, centerLat]).scale(scale).translate([tx, ty]);
+}
+
 export function drawFinalPath(mapSvg, mapProjection, cyclone, world, tooltip, siteName, siteLon, siteLat, showPathPoints = false, finalStats = null, basin = 'WPAC', pressureSystems = [], showWindField = false, month = 8, siteHistory = [], siteData = null, onSiteClick = null) {
     // 1. 基础安全检查
     if (!cyclone || !cyclone.track || cyclone.track.length < 2) return;
@@ -1523,25 +1561,11 @@ export function drawFinalPath(mapSvg, mapProjection, cyclone, world, tooltip, si
         unwrappedTrackForCentering.push(point);
     });
 
-    // 3. 计算中心并旋转地球
-    const avgLon = d3.mean(unwrappedTrackForCentering, p => p[0]);
-    const avgLat = d3.mean(unwrappedTrackForCentering, p => p[1]);
-
-    if (isFinite(avgLon) && isFinite(avgLat)) {
-        // 将视角旋转到路径中心
-        mapProjection.rotate([-avgLon, -avgLat]).center([0, 0]);
-    }
-
-    // 4. 计算缩放 (Fit Extent)
-    const coords = cyclone.track.map(p => [p[0], p[1]]);
-    const fullTrackGeoJSON = { type: "LineString", coordinates: coords };
-
+    // 3. 以解包后的路径为中心定位视角并缩放适配
     // [修复 B] 动态计算边距，防止硬编码数值在小屏幕上导致负数
     // 左侧留出 360px 给左侧面板 (如果有显示)，上下留出 50px
-    const leftPad = width > 600 ? 360 : 100; 
-    
-    // 自动缩放地图以适应完整路径
-    mapProjection.fitExtent([[leftPad, 100], [width - 100, height - 100]], fullTrackGeoJSON);
+    const leftPad = width > 600 ? 360 : 100;
+    centerProjectionOnTrack(mapProjection, unwrappedTrackForCentering, [[leftPad, 100], [width - 100, height - 100]]);
     
     // [修复 C - 核心] 创建副本并强制修改状态为 'history'
     // 这防止 drawMap() 内部检测到 'active' 状态后强制重置地图中心，覆盖上面的 fitExtent
@@ -1986,30 +2010,8 @@ export function drawAllHistoryTracks(mapSvg, mapProjection, historyList, world) 
     // 3. 动态调整投影 (Auto-Fit)
     const { width, height } = mapSvg.node().getBoundingClientRect();
     
-    // 计算中心点
-    const centerLon = (minLon + maxLon) / 2;
-    const centerLat = (minLat + maxLat) / 2;
-    
-    // 旋转地图以中心点为准
-    mapProjection.rotate([-centerLon, 0]).center([0, centerLat]);
-
-    // 计算缩放比例
-    // 我们需要将 [minLon, maxLat] 到 [maxLon, minLat] 的范围放入屏幕
-    // 添加 20% 的 Padding 避免贴边
-    const lonSpan = Math.abs(maxLon - minLon) || 30; // 防止单一路径导致 span 为 0
-    const latSpan = Math.abs(maxLat - minLat) || 20;
-    
-    // 简单的缩放估算 (Equirectangular 投影下)
-    // 360度经度对应整个地球宽度
-    // 这里的 scale 因子可能需要根据你的 D3 版本微调，通常 height / PI 是基准
-    // 我们用 fitExtent 模拟：
-    // 构造一个包围盒 GeoJSON
-    const boundingBox = {
-        type: "LineString",
-        coordinates: [[minLon, minLat], [maxLon, maxLat]]
-    };
-    // 使用 fitExtent 自动计算最佳 scale 和 translate
-    mapProjection.fitExtent([[50, 50], [width - 50, height - 50]], boundingBox);
+    // 以所有历史路径的范围为中心定位视角 (等距投影下与 rotate 等价, 不残留旋转状态)
+    centerProjectionOnTrack(mapProjection, [[minLon, minLat], [maxLon, maxLat]], [[50, 50], [width - 50, height - 50]]);
 
 
     // 4. 绘制底图 (此时 Projection 已经设置好)
@@ -4862,120 +4864,230 @@ export function renderStationSynopticChart(cyclone, timeIndex, worldData, pressu
     return canvas;
 }
 // ============================================================
-// [新增] 世界地图海洋层: 动态水波 + 全地形着色
-// 一个位于 SVG 底下的 Canvas, 每帧读取等距投影参数,
-// 世界锚定地绘制海洋动态波纹, 并叠加地形瓦片 (陆地着色)
+// [新增] 世界地图海洋层: WebGL 动态海水着色器 + 全地形着色
+// 两层 Canvas 位于 SVG (z-10) 下方:
+//   * #ocean-canvas-layer   - WebGL 水层: 世界锚定的动态海水 (洋流/波光/细闪)
+//   * #ocean-terrain-canvas - 2D 地形层: 地形瓦片 (陆地着色, 海洋透明)
+// 每帧读取等距投影参数, 世界锚定地绘制, 视图平移/缩放时保持一致
 // ============================================================
-let oceanLayerCtx = null;
-let oceanLayerCanvas = null;
-let oceanWaveTileA = null;
-let oceanWaveTileB = null;
+let oceanLayerCanvas = null;    // WebGL 水层
+let oceanTerrainCanvas = null;  // 2D 地形层
+let oceanTerrainCtx = null;
+let oceanWaterRender = null;    // WebGL 每帧渲染函数 (不可用时为 null, 回退静态底色)
 let oceanAnimFrame = null;
 
-// 生成可无缝平铺的水波纹理瓦片 (整数波数保证平铺无缝)
-function makeOceanWaveTile(w, h, seed) {
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    const img = ctx.createImageData(w, h);
-    const d = img.data;
-    // 整数波数: 水平 / 垂直方向均无缝
-    const fx1 = (2 * Math.PI * 6) / w, fy1 = (2 * Math.PI * 4) / h;
-    const fx2 = (2 * Math.PI * 11) / w, fy2 = (2 * Math.PI * 7) / h;
-    for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-            const v = Math.sin(x * fx1 + y * fy1 + seed) * Math.cos(x * fx2 - y * fy2 + seed * 0.7);
-            const b = Math.pow(Math.max(0, v), 4); // 波光高亮
-            const i = (y * w + x) * 4;
-            d[i] = 155; d[i + 1] = 208; d[i + 2] = 255;
-            d[i + 3] = Math.round(b * 160);
+// 等距投影 -> 世界瓦片像素空间的仿射参数 (CSS 像素单位)
+function computeOceanAffine(proj) {
+    const RAD = Math.PI / 180;
+    const tile = getTerrainTile();
+    const tw = tile ? tile.width : 2160;
+    const th = tile ? tile.height : 1080;
+    const s = proj.scale();
+    const txy = proj.translate();
+    const c = proj.center();
+    return {
+        tile,
+        tw,
+        th,
+        // 每个瓦片像素对应的屏幕像素宽 / 高
+        scaleX: (s * RAD * 360) / tw,
+        scaleY: (s * RAD * 180) / th,
+        // 瓦片原点 (lon=-180, lat=90) 的屏幕位置
+        offX: txy[0] + s * RAD * (-180 - c[0]),
+        offY: txy[1] + s * RAD * (c[1] - 90),
+    };
+}
+
+// 初始化 WebGL 海水着色器, 返回 render(w, h, dpr, aff, tMs); 失败返回 null
+function createWaterRenderer(canvas) {
+    const attrs = {
+        alpha: false, depth: false, stencil: false, antialias: false,
+        preserveDrawingBuffer: true, // 便于截图/取色校验
+        powerPreference: 'low-power',
+    };
+    const gl = canvas.getContext('webgl', attrs) || canvas.getContext('experimental-webgl', attrs);
+    if (!gl) return null;
+
+    const compile = (type, src) => {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, src);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+            console.warn('Water shader compile error:', gl.getShaderInfoLog(sh));
+            gl.deleteShader(sh);
+            return null;
         }
+        return sh;
+    };
+
+    const vsSrc = `
+attribute vec2 a_pos;
+void main() { gl_Position = vec4(a_pos, 0.0, 1.0); }`;
+
+    const fsSrc = `
+precision highp float;
+uniform vec2  u_res;   // 画布 CSS 尺寸
+uniform float u_dpr;   // devicePixelRatio
+uniform vec4  u_aff;   // (CSSpx/瓦片px x, CSSpx/瓦片px y, 瓦片原点屏幕X, 瓦片原点屏幕Y)
+uniform float u_time;  // 秒
+
+float hash21(vec2 p) {
+    p = fract(p * vec2(234.34, 435.345));
+    p += dot(p, p + 34.23);
+    return fract(p.x * p.y);
+}
+float vnoise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash21(i), hash21(i + vec2(1.0, 0.0)), u.x),
+               mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+float fbm(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    mat2 rot = mat2(0.8, 0.6, -0.6, 0.8);
+    for (int i = 0; i < 3; i++) {
+        v += a * vnoise(p);
+        p = rot * p * 2.03;
+        a *= 0.5;
     }
-    ctx.putImageData(img, 0, 0);
-    return canvas;
+    return v;
+}
+
+void main() {
+    // CSS 坐标 (gl_FragCoord 以物理像素计)
+    vec2 css = gl_FragCoord.xy / u_dpr;
+    float yn = css.y / u_res.y;
+
+    // 1. 深海底色 (纵向深度渐变)
+    vec3 col = mix(vec3(0.043, 0.102, 0.173), vec3(0.051, 0.125, 0.204), smoothstep(0.0, 0.45, yn));
+    col = mix(col, vec3(0.039, 0.090, 0.153), smoothstep(0.45, 1.0, yn));
+
+    // 世界瓦片坐标 (世界锚定: 平移/缩放时水纹随地图移动)
+    vec2 tile = (css - u_aff.zw) / u_aff.xy;
+    float t = u_time;
+
+    // 2. 大尺度缓慢漂移的洋流明暗 -> 全图可见的水体流动感
+    float cur = fbm(tile * 0.0035 + vec2(t * 2.6, -t * 1.4));
+    col *= 0.93 + 0.15 * cur;
+
+    // 3. 波光闪烁 (三组不同尺度、各自漂移的光斑, 类似海面反光)
+    float g = 0.0;
+    //   开阔涌浪光斑 (横向拉长, 呈风浪条纹)
+    float n1 = fbm(vec2(tile.x * 0.010, tile.y * 0.022) + vec2(t * 3.2, 0.0));
+    g += pow(max(n1 - 0.60, 0.0), 2.2) * 1.5;
+    //   细碎涟漪高光 (更快漂移)
+    float n2 = fbm(vec2(tile.x * 0.030, tile.y * 0.055) - vec2(t * 2.4, t * 0.6));
+    g += pow(max(n2 - 0.68, 0.0), 2.6) * 1.2;
+    //   极细浪尖微光 (原地闪烁的生命感)
+    float n3 = fbm(tile * 0.22 + vec2(t * 6.0, t * 3.0));
+    g += pow(max(n3 - 0.78, 0.0), 3.0) * 0.9;
+
+    col += vec3(0.62, 0.78, 1.00) * (g * 0.22);
+
+    gl_FragColor = vec4(col, 1.0);
+}`;
+
+    const vs = compile(gl.VERTEX_SHADER, vsSrc);
+    const fs = compile(gl.FRAGMENT_SHADER, fsSrc);
+    if (!vs || !fs) return null;
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+        console.warn('Water program link error:', gl.getProgramInfoLog(prog));
+        return null;
+    }
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+
+    const loc = {
+        aPos: gl.getAttribLocation(prog, 'a_pos'),
+        uRes: gl.getUniformLocation(prog, 'u_res'),
+        uDpr: gl.getUniformLocation(prog, 'u_dpr'),
+        uAff: gl.getUniformLocation(prog, 'u_aff'),
+        uTime: gl.getUniformLocation(prog, 'u_time'),
+    };
+
+    return function render(w, h, dpr, aff, tMs) {
+        // 画布尺寸重置会清空 GL 状态, 故每帧重绑, 保证健壮
+        gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+        gl.useProgram(prog);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.enableVertexAttribArray(loc.aPos);
+        gl.vertexAttribPointer(loc.aPos, 2, gl.FLOAT, false, 0, 0);
+        gl.uniform2f(loc.uRes, w, h);
+        gl.uniform1f(loc.uDpr, dpr);
+        gl.uniform4f(loc.uAff, aff.scaleX, aff.scaleY, aff.offX, aff.offY);
+        gl.uniform1f(loc.uTime, tMs / 1000);
+        gl.drawArrays(gl.TRIANGLES, 0, 3);
+    };
 }
 
 export function initOceanLayer(container, projection) {
     if (!container || oceanLayerCanvas) return;
 
+    const getProjection = typeof projection === 'function' ? projection : () => projection;
+
+    // A. WebGL 水层 (最底)
     oceanLayerCanvas = document.createElement('canvas');
     oceanLayerCanvas.id = 'ocean-canvas-layer';
     oceanLayerCanvas.className = 'absolute top-0 left-0 w-full h-full pointer-events-none';
     container.appendChild(oceanLayerCanvas);
-    oceanLayerCtx = oceanLayerCanvas.getContext('2d');
+    oceanWaterRender = createWaterRenderer(oceanLayerCanvas);
 
-    oceanWaveTileA = makeOceanWaveTile(128, 80, 1.7);
-    oceanWaveTileB = makeOceanWaveTile(112, 72, 4.2);
-
-    const getProjection = typeof projection === 'function' ? projection : () => projection;
+    // B. 地形层 (位于水层之上, SVG 之下)
+    oceanTerrainCanvas = document.createElement('canvas');
+    oceanTerrainCanvas.id = 'ocean-terrain-canvas';
+    oceanTerrainCanvas.className = 'absolute top-0 left-0 w-full h-full pointer-events-none';
+    container.appendChild(oceanTerrainCanvas);
+    oceanTerrainCtx = oceanTerrainCanvas.getContext('2d');
 
     function frame(t) {
         oceanAnimFrame = requestAnimationFrame(frame);
         const proj = getProjection();
-        if (!proj || !oceanLayerCtx) return;
+        if (!proj || !oceanTerrainCanvas) return;
 
         const dpr = window.devicePixelRatio || 1;
         const w = container.clientWidth;
         const h = container.clientHeight;
         if (!w || !h) return;
 
-        if (oceanLayerCanvas.width !== Math.round(w * dpr) || oceanLayerCanvas.height !== Math.round(h * dpr)) {
-            oceanLayerCanvas.width = Math.round(w * dpr);
-            oceanLayerCanvas.height = Math.round(h * dpr);
-        }
-        const ctx = oceanLayerCtx;
+        const pw = Math.round(w * dpr);
+        const ph = Math.round(h * dpr);
+        if (oceanLayerCanvas.width !== pw) oceanLayerCanvas.width = pw;
+        if (oceanLayerCanvas.height !== ph) oceanLayerCanvas.height = ph;
+        if (oceanTerrainCanvas.width !== pw) oceanTerrainCanvas.width = pw;
+        if (oceanTerrainCanvas.height !== ph) oceanTerrainCanvas.height = ph;
 
-        // 1. 海洋底色 (带深度渐变)
+        const aff = computeOceanAffine(proj);
+
+        // 1. WebGL 动态海水
+        if (oceanWaterRender) oceanWaterRender(w, h, dpr, aff, t);
+
+        // 2. 地形层: 先清空, 无 WebGL 时画静态底色, 再叠地形瓦片 (陆地着色, 海洋透明)
+        const ctx = oceanTerrainCtx;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        const grad = ctx.createLinearGradient(0, 0, 0, h);
-        grad.addColorStop(0, '#0b1a2c');
-        grad.addColorStop(0.45, '#0d2034');
-        grad.addColorStop(1, '#0a1727');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, w, h);
-
-        // 2. 等距投影 -> 地形瓦片像素空间仿射变换
-        //    瓦片尺寸 WxH 覆盖 -180..180 / 90..-90; 每图像像素对应的屏幕尺寸 = 2πs/W (水平), πs/H (垂直)
-        const s = proj.scale();
-        const tx = proj.translate()[0];
-        const ty = proj.translate()[1];
-        const c = proj.center();
-        const RAD = Math.PI / 180;
-        const tile = getTerrainTile();
-        const tw = tile ? tile.width : 1080;
-        const th = tile ? tile.height : 540;
-        const scaleX = s * RAD * 360 / tw;
-        const scaleY = s * RAD * 180 / th;
-        const offX = tx + s * RAD * (-180 - c[0]);
-        const offY = ty + s * RAD * (c[1] - 90);
-
-        // 3. 动态水波 (世界锚定 + 缓慢漂移)
-        ctx.save();
-        ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, dpr * offX, dpr * offY);
-        ctx.globalAlpha = 0.22;
-        ctx.fillStyle = ctx.createPattern(oceanWaveTileA, 'repeat');
-        const d1x = (t * 0.03) % oceanWaveTileA.width;
-        const d1y = Math.sin(t * 0.0006) * 24;
-        ctx.save();
-        ctx.translate(d1x, d1y);
-        ctx.fillRect(-tw, -th, tw * 3, th * 3);
-        ctx.restore();
-
-        ctx.globalAlpha = 0.16;
-        ctx.fillStyle = ctx.createPattern(oceanWaveTileB, 'repeat');
-        const d2x = (t * 0.02) % oceanWaveTileB.width;
-        const d2y = Math.cos(t * 0.0005) * 30;
-        ctx.translate(d2x, d2y);
-        ctx.fillRect(-tw, -th, tw * 3, th * 3);
-        ctx.restore();
-
-        // 4. 地形瓦片 (陆地着色, 海洋透明)
-        if (tile) {
-            ctx.setTransform(dpr * scaleX, 0, 0, dpr * scaleY, dpr * offX, dpr * offY);
-            ctx.drawImage(tile, 0, 0);
+        ctx.clearRect(0, 0, w, h);
+        if (!oceanWaterRender) {
+            const grad = ctx.createLinearGradient(0, 0, 0, h);
+            grad.addColorStop(0, '#0b1a2c');
+            grad.addColorStop(0.45, '#0d2034');
+            grad.addColorStop(1, '#0a1727');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, w, h);
         }
-        ctx.restore();
+        if (aff.tile) {
+            ctx.setTransform(dpr * aff.scaleX, 0, 0, dpr * aff.scaleY, dpr * aff.offX, dpr * aff.offY);
+            ctx.drawImage(aff.tile, 0, 0);
+        }
     }
     oceanAnimFrame = requestAnimationFrame(frame);
 }

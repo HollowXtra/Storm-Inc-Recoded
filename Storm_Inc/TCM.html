@@ -269,6 +269,10 @@
         #ocean-canvas-layer {
             z-index: 0;
         }
+        /* [新增] 地形层位于 WebGL 水层之上、SVG (z-10) 之下 */
+        #ocean-terrain-canvas {
+            z-index: 1;
+        }
 
         /* 经纬网 */
         .graticule {
