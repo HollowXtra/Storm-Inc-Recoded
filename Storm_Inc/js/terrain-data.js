@@ -110,60 +110,154 @@ export function getElevationAt(lon, lat) {
 let terrainTile = null;
 
 // 构建地形着色瓦片: 根据高程灰度 + 陆地遮罩生成暗色主题地形色带
-// 返回一个 1080x540 的 Canvas, 海洋部分完全透明, 可直接叠加到等距投影地图上
+// 带山体阴影 (西北光照) / 纬度雪线 / 海岸压暗 / 细腻色阶, 最后 2x 平滑放大避免低分辨率色块感。
+// 海洋部分完全透明, 可直接叠加到等距投影地图上
 export function getTerrainTile() {
     if (!elevationData || !landMaskData) return null;
     if (terrainTile) return terrainTile;
 
-    const canvas = document.createElement('canvas');
-    canvas.width = mapWidth;
-    canvas.height = mapHeight;
-    const ctx = canvas.getContext('2d');
-    const img = ctx.createImageData(mapWidth, mapHeight);
-    const d = img.data;
+    const sw = mapWidth, sh = mapHeight;
+    const d = new Uint8ClampedArray(sw * sh * 4);
 
-    // 地形色带 (暗色主题): 低地绿 -> 丘陵橄榄 -> 高地棕绿 -> 山地棕 -> 雪顶灰白
+    // 地形色带 (暗色主题): 海岸深绿 -> 低地绿 -> 平原橄榄 -> 丘陵橄榄棕 -> 山地棕 -> 高海拔棕灰 -> 岩漠灰
     const stops = [
-        [0.00, 43, 66, 48],
-        [0.30, 66, 84, 58],
-        [0.55, 96, 92, 70],
-        [0.78, 118, 106, 86],
-        [0.92, 172, 176, 184]
+        [0.00, 36, 58, 43],
+        [0.06, 52, 79, 55],
+        [0.20, 77, 91, 67],
+        [0.40, 104, 100, 76],
+        [0.60, 125, 110, 86],
+        [0.78, 144, 131, 108],
+        [0.90, 162, 154, 136]
     ];
-    const last = stops[stops.length - 1];
+    const snowCol = [200, 207, 217]; // 雪顶
 
-    for (let i = 0; i < elevationData.length; i++) {
-        const idx = i * 4;
-        const isLand = landMaskData[i] > 128;
-        const e = elevationData[i];
-        if (!isLand || e < 4) {
-            d[idx + 3] = 0; // 海洋透明
-            continue;
-        }
-        const t = Math.min(1, e / 255);
-        let r = stops[0][1], g = stops[0][2], b = stops[0][3];
-        if (t < stops[0][0]) {
-            // 低于最低档: 保持低地色
-        } else if (t >= last[0]) {
-            r = last[1]; g = last[2]; b = last[3];
-        } else {
+    // 轻量伪随机抖动 (消除大面积平色带)
+    const hash = (x, y) => {
+        let h = (x * 374761393 + y * 668265263) | 0;
+        h = ((h ^ (h >> 13)) * 1274126177) | 0;
+        h = (h ^ (h >> 16)) >>> 0;
+        return h / 4294967295;
+    };
+
+    const smoothstep = (a, b, x) => {
+        const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+        return t * t * (3 - 2 * t);
+    };
+
+    // 粗略荒漠判定 (纬度带 + 主要沙漠经度区间), 让撒哈拉/阿拉伯/戈壁/澳洲内陆等呈沙色而非绿色
+    const desertMix = (lon, lat) => {
+        const a = Math.abs(lat);
+        if (a < 12) return 0;
+        let m = 0;
+        if (lat > 10 && lat < 35 && lon > -20 && lon < 60) m = Math.max(m, 1);        // 撒哈拉 + 阿拉伯
+        if (lat > 25 && lat < 42 && lon > 45 && lon < 78) m = Math.max(m, 0.9);        // 伊朗高原/中亚
+        if (lat > 34 && lat < 49 && lon > 72 && lon < 112) m = Math.max(m, 0.85);      // 戈壁/塔克拉玛干
+        if (lat > 20 && lat < 38 && lon < -95 && lon > -123) m = Math.max(m, 0.9);      // 西南北美/墨西哥
+        if (lat < -15 && lat > -32 && lon > 112 && lon < 148) m = Math.max(m, 0.9);     // 澳洲内陆
+        if (lat < -18 && lat > -30 && lon > 7 && lon < 27) m = Math.max(m, 0.9);        // 卡拉哈里
+        if (lat < -15 && lat > -27 && lon < -66 && lon > -73) m = Math.max(m, 1);       // 阿塔卡马
+        return m;
+    };
+
+    const elevAt = (x, y) => {
+        // x 环绕 (经度无缝), y 钳制 (极点)
+        let xi = x;
+        if (xi < 0) xi += sw;
+        else if (xi >= sw) xi -= sw;
+        const yi = y < 0 ? 0 : (y >= sh ? sh - 1 : y);
+        return elevationData[yi * sw + xi];
+    };
+    const landAt = (x, y) => {
+        let xi = x;
+        if (xi < 0) xi += sw;
+        else if (xi >= sw) xi -= sw;
+        const yi = y < 0 ? 0 : (y >= sh ? sh - 1 : y);
+        return landMaskData[yi * sw + xi];
+    };
+
+    for (let y = 0; y < sh; y++) {
+        const row = y * sw;
+        // 纬度雪线: 低纬仅极高海拔有雪, 高纬雪线快速降低
+        const latDeg = Math.abs(90 - (y / sh) * 180);
+        const snowLine = 0.93 - 0.22 * smoothstep(0, 72, latDeg);
+        for (let x = 0; x < sw; x++) {
+            const i = row + x;
+            const idx = i * 4;
+            const e = elevationData[i];
+            const landV = landMaskData[i];
+            // 仅陆地; 沿海遮罩渐变处允许半透明 (让海岸平滑)。
+            // 陆地即使海拔 ~0 (如亚马逊/刚果盆地) 也要着色, 避免海洋色漏进大陆内部。
+            if (landV <= 8) continue;
+
+            const alpha = Math.min(255, landV);
+            const t = Math.min(1, Math.max(0, e) / 255);
+
+            // 1. 基础色带插值
+            let r = stops[0][1], g = stops[0][2], b = stops[0][3];
             for (let s = 0; s < stops.length - 1; s++) {
                 const lo = stops[s], hi = stops[s + 1];
                 if (t >= lo[0] && t < hi[0]) {
                     const k = (t - lo[0]) / (hi[0] - lo[0]);
-                    r = Math.round(lo[1] + (hi[1] - lo[1]) * k);
-                    g = Math.round(lo[2] + (hi[2] - lo[2]) * k);
-                    b = Math.round(lo[3] + (hi[3] - lo[3]) * k);
+                    r = lo[1] + (hi[1] - lo[1]) * k;
+                    g = lo[2] + (hi[2] - lo[2]) * k;
+                    b = lo[3] + (hi[3] - lo[3]) * k;
                     break;
                 }
             }
+            if (t >= stops[stops.length - 1][0]) { r = stops[6][1]; g = stops[6][2]; b = stops[6][3]; }
+
+            // 1b. 荒漠地带: 海拔越低越沙色 (山地保留自身色调)
+            const lonDeg = (x / sw) * 360 - 180;
+            const latDegC = 90 - (y / sh) * 180;
+            const dm = desertMix(lonDeg, latDegC) * (0.25 + 0.75 * (1 - t));
+            if (dm > 0) {
+                const arid = [152, 132, 96]; // 暗色主题的沙色
+                r = r + (arid[0] - r) * dm;
+                g = g + (arid[1] - g) * dm;
+                b = b + (arid[2] - b) * dm;
+            }
+
+            // 2. 山体阴影 (光照来自西北): 面向西北的坡更亮, 背光坡更暗
+            const er = elevAt(x + 1, y), el = elevAt(x - 1, y);
+            const ed = elevAt(x, y + 1), eu = elevAt(x, y - 1);
+            const lit = Math.min(0.9, Math.max(0.12, 0.5 - ((er - el) + (ed - eu)) * 0.055));
+            const shade = 0.62 + 0.82 * lit; // 0.72..1.36
+
+            // 3. 海岸线: 邻海陆地轻微压暗, 让海岸更有层次
+            let coast = 1;
+            if (landAt(x + 1, y) <= 8 || landAt(x - 1, y) <= 8 || landAt(x, y + 1) <= 8 || landAt(x, y - 1) <= 8) {
+                coast = 0.87;
+            }
+
+            // 4. 积雪: 越过雪线的海拔渐变成雪白
+            let snowK = 0;
+            if (t > snowLine) {
+                snowK = smoothstep(snowLine, Math.min(1, snowLine + 0.045), t) * 0.95;
+            }
+
+            const mult = shade * coast;
+            r *= mult; g *= mult; b *= mult;
+            if (snowK > 0) {
+                r = r + (snowCol[0] - r) * snowK;
+                g = g + (snowCol[1] - g) * snowK;
+                b = b + (snowCol[2] - b) * snowK;
+            }
+            // 5. 轻微颗粒抖动, 打破平涂
+            const grain = (hash(x, y) - 0.5) * 0.045;
+            const m2 = 1 + grain;
+            d[idx] = Math.max(0, Math.min(255, Math.round(r * m2)));
+            d[idx + 1] = Math.max(0, Math.min(255, Math.round(g * m2)));
+            d[idx + 2] = Math.max(0, Math.min(255, Math.round(b * m2)));
+            d[idx + 3] = alpha;
         }
-        d[idx] = r;
-        d[idx + 1] = g;
-        d[idx + 2] = b;
-        d[idx + 3] = 255;
     }
-    ctx.putImageData(img, 0, 0);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = sw;
+    canvas.height = sh;
+    const ctx = canvas.getContext('2d');
+    ctx.putImageData(new ImageData(d, sw, sh), 0, 0);
+    // 最终绘制到地图时按双线性平滑缩放, 不需要额外放大缓存
     terrainTile = canvas;
     return canvas;
 }

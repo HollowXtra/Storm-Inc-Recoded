@@ -1699,7 +1699,7 @@ function updateInfoPanel() {
 
             // 5. 绘图
             // 注意：这里传给 drawFinalPath 的是 basinId (selector value)，因为它可能需要用来确定颜色逻辑等
-            drawFinalPath(mapSvg, mapProjection, state.cyclone, state.world, tooltip, state.siteName, state.siteLon, state.siteLat, state.showPathPoints, finalStats, basinId, state.pressureSystems, state.showWindField);
+            drawFinalPath(mapSvg, mapProjection, state.cyclone, state.world, tooltip, state.siteName, state.siteLon, state.siteLat, state.showPathPoints, finalStats, basinId, state.pressureSystems, state.showWindField, undefined, undefined, undefined, undefined, undefined, undefined, true);
             requestRedraw();
             
             if (state.showIntensityChart) {
@@ -2072,7 +2072,8 @@ if (yearSelector) yearSelector.disabled = true;
                     state.showPathPoints, state.lastFinalStats, basinSelector.value, 
                     state.pressureSystems, state.showWindField,
                     // [新增] 传入站点相关参数
-                    state.currentMonth, state.siteHistory, siteDataToPass, onSiteClickCallback
+                    state.currentMonth, state.siteHistory, siteDataToPass, onSiteClickCallback,
+                    true
                 );
             }
         }
@@ -2332,10 +2333,9 @@ if (yearSelector) yearSelector.disabled = true;
             if (typeof playClick === 'function') playClick();
 
             if (state.cyclone.status === 'active') {
-                 requestRedraw();
-            } else {
-                 drawFinalPath(mapSvg, mapProjection, state.cyclone, state.world, tooltip, state.siteName, state.siteLon, state.siteLat, state.showPathPoints, state.lastFinalStats, basinSelector.value, state.pressureSystems, state.showWindField);
-            } 
+                 requestRedraw();            } else {
+                drawFinalPath(mapSvg, mapProjection, state.cyclone, state.world, tooltip, state.siteName, state.siteLon, state.siteLat, state.showPathPoints, state.lastFinalStats, basinSelector.value, state.pressureSystems, state.showWindField, undefined, undefined, undefined, undefined, undefined, undefined, true);
+            }  
         });
     }
 

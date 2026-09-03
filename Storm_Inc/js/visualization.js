@@ -1536,10 +1536,21 @@ function centerProjectionOnTrack(mapProjection, points, extent) {
     mapProjection.rotate([0, 0]).center([normLon, centerLat]).scale(scale).translate([tx, ty]);
 }
 
-export function drawFinalPath(mapSvg, mapProjection, cyclone, world, tooltip, siteName, siteLon, siteLat, showPathPoints = false, finalStats = null, basin = 'WPAC', pressureSystems = [], showWindField = false, month = 8, siteHistory = [], siteData = null, onSiteClick = null) {
+// [新增] 气旋死亡时的“原位收尾”视角: 保持与活动跟随视图一致的缩放级别,
+// 仅把视野中心对准气旋最终位置, 避免地图突然跳转/缩放到整条轨迹的中点
+// (长途移动的气旋其轨迹中点可能远离实际消亡位置, 看起来就像地图跳到了错误的地方)。
+function centerProjectionOnFinalPoint(mapProjection, finalLon, finalLat, width, height) {
+    if (!mapProjection || !isFinite(finalLon) || !isFinite(finalLat)) return;
+    const RAD = Math.PI / 180;
+    const normLon = ((finalLon + 180) % 360 + 360) % 360 - 180;
+    mapProjection.rotate([0, 0])
+        .scale(height / (20 * RAD))
+        .center([normLon, finalLat])
+        .translate([width / 2, height / 2]);
+}export function drawFinalPath(mapSvg, mapProjection, cyclone, world, tooltip, siteName, siteLon, siteLat, showPathPoints = false, finalStats = null, basin = 'WPAC', pressureSystems = [], showWindField = false, month = 8, siteHistory = [], siteData = null, onSiteClick = null, centerOnFinal = false) {
     // 1. 基础安全检查
     if (!cyclone || !cyclone.track || cyclone.track.length < 2) return;
-    
+
     // [修复 A] 清理 "SHOW ALL" 模式留下的残留线条 (.history-segment)
     mapSvg.select(".layer-track-lines").selectAll(".history-segment").remove();
 
@@ -1561,11 +1572,17 @@ export function drawFinalPath(mapSvg, mapProjection, cyclone, world, tooltip, si
         unwrappedTrackForCentering.push(point);
     });
 
-    // 3. 以解包后的路径为中心定位视角并缩放适配
+    // 3. 以路径为中心定位视角并缩放适配
     // [修复 B] 动态计算边距，防止硬编码数值在小屏幕上导致负数
     // 左侧留出 360px 给左侧面板 (如果有显示)，上下留出 50px
+    // 实时消亡 (centerOnFinal): 保持“跟随”视图的缩放, 视角对准消亡位置, 不做整条轨迹的缩放跳转
     const leftPad = width > 600 ? 360 : 100;
-    centerProjectionOnTrack(mapProjection, unwrappedTrackForCentering, [[leftPad, 100], [width - 100, height - 100]]);
+    const lastPoint = cyclone.track[cyclone.track.length - 1];
+    if (centerOnFinal && lastPoint && isFinite(lastPoint[0]) && isFinite(lastPoint[1])) {
+        centerProjectionOnFinalPoint(mapProjection, lastPoint[0], lastPoint[1], width, height);
+    } else {
+        centerProjectionOnTrack(mapProjection, unwrappedTrackForCentering, [[leftPad, 100], [width - 100, height - 100]]);
+    }
     
     // [修复 C - 核心] 创建副本并强制修改状态为 'history'
     // 这防止 drawMap() 内部检测到 'active' 状态后强制重置地图中心，覆盖上面的 fitExtent
@@ -4930,6 +4947,7 @@ uniform vec2  u_res;   // 画布 CSS 尺寸
 uniform float u_dpr;   // devicePixelRatio
 uniform vec4  u_aff;   // (CSSpx/瓦片px x, CSSpx/瓦片px y, 瓦片原点屏幕X, 瓦片原点屏幕Y)
 uniform float u_time;  // 秒
+uniform float u_invS;  // 度/每个 CSS 像素 (= 1/(scale*RAD)), 世界坐标换算用
 
 float hash21(vec2 p) {
     p = fract(p * vec2(234.34, 435.345));
@@ -4959,32 +4977,57 @@ void main() {
     // CSS 坐标 (gl_FragCoord 以物理像素计)
     vec2 css = gl_FragCoord.xy / u_dpr;
     float yn = css.y / u_res.y;
-
-    // 1. 深海底色 (纵向深度渐变)
-    vec3 col = mix(vec3(0.043, 0.102, 0.173), vec3(0.051, 0.125, 0.204), smoothstep(0.0, 0.45, yn));
-    col = mix(col, vec3(0.039, 0.090, 0.153), smoothstep(0.45, 1.0, yn));
-
-    // 世界瓦片坐标 (世界锚定: 平移/缩放时水纹随地图移动)
-    vec2 tile = (css - u_aff.zw) / u_aff.xy;
     float t = u_time;
+    float dps = u_invS;                     // 度 / CSS 像素
 
-    // 2. 大尺度缓慢漂移的洋流明暗 -> 全图可见的水体流动感
-    float cur = fbm(tile * 0.0035 + vec2(t * 2.6, -t * 1.4));
-    col *= 0.93 + 0.15 * cur;
+    // 当前像素的世界经纬度 (度, 世界锚定: 平移/缩放时水纹随地图移动)
+    vec2 dg = (css - u_aff.zw) * dps;       // x: 从 -180 起算的经度, y: 从 +90 向南
+    float lat = 90.0 - dg.y;
 
-    // 3. 波光闪烁 (三组不同尺度、各自漂移的光斑, 类似海面反光)
-    float g = 0.0;
-    //   开阔涌浪光斑 (横向拉长, 呈风浪条纹)
-    float n1 = fbm(vec2(tile.x * 0.010, tile.y * 0.022) + vec2(t * 3.2, 0.0));
-    g += pow(max(n1 - 0.60, 0.0), 2.2) * 1.5;
-    //   细碎涟漪高光 (更快漂移)
-    float n2 = fbm(vec2(tile.x * 0.030, tile.y * 0.055) - vec2(t * 2.4, t * 0.6));
-    g += pow(max(n2 - 0.68, 0.0), 2.6) * 1.2;
-    //   极细浪尖微光 (原地闪烁的生命感)
-    float n3 = fbm(tile * 0.22 + vec2(t * 6.0, t * 3.0));
-    g += pow(max(n3 - 0.78, 0.0), 3.0) * 0.9;
+    // --- 1. 底色: 纵向深度渐变 + 纬度水色 (热带暖碧蓝, 高纬灰深蓝) ---
+    vec3 col = mix(vec3(0.018, 0.046, 0.092), vec3(0.030, 0.068, 0.124), smoothstep(0.0, 0.4, yn));
+    col = mix(col, vec3(0.048, 0.096, 0.158), smoothstep(0.4, 0.72, yn) * (1.0 - smoothstep(0.82, 1.0, yn)));
 
-    col += vec3(0.62, 0.78, 1.00) * (g * 0.22);
+    float trop = exp(-pow(lat / 28.0, 2.0));
+    col = mix(col, vec3(0.062, 0.150, 0.185), 0.62 * trop * (1.0 - smoothstep(38.0, 58.0, abs(lat))));
+    col = mix(col, vec3(0.026, 0.060, 0.105), smoothstep(44.0, 74.0, abs(lat)));
+
+    // --- 2. 海流方向场: 盛行方向随经度缓慢摆动, 让波浪朝一致方向推进 ---
+    float wd = 2.1 + 0.55 * sin(dg.x * 0.012 + t * 0.05) + 0.38 * sin(dg.y * 0.045 - t * 0.03);
+    vec2 dir = vec2(cos(wd), sin(wd));
+    vec2 per = vec2(-dir.y, dir.x);
+    vec2 pos = dg - dir * (t * 0.7);        // 采样点顺流平移 => 波浪向前流动
+    float A = dot(pos, dir);
+    float C = dot(pos, per);
+
+    // --- 3. 大洋尺度洋流斑块 (低频明暗缓慢演化) ---
+    float cur = fbm(vec2(A * 0.018, C * 0.028) + vec2(0.0, t * 0.02));
+    col *= 0.96 + 0.10 * cur;
+
+    // --- 4. 涌浪: 与流向垂直的主浪 + 斜向次浪, 振幅由风区噪声调制 ---
+    float env = 0.6 + 0.4 * fbm(vec2(A * 0.05, C * 0.09));
+    float sw1 = 0.5 + 0.5 * sin(A * 2.0 - t * 0.85);   // 主浪 (横浪)
+    float sw2 = 0.5 + 0.5 * sin(C * 2.4 - t * 1.05);   // 次浪 (斜向)
+    float band = sw1 * 0.62 + sw2 * 0.38 - 0.5;
+    col *= 1.0 + 0.06 * env * band * 2.0;
+
+    // --- 5. 海面反光: 顺风拉长的亮纹 (双尺度, 似阳光碎金) ---
+    float g1 = fbm(vec2(C * 0.12, A * 0.045));
+    col += vec3(0.45, 0.62, 0.86) * pow(max(g1 - 0.58, 0.0), 2.0) * 0.9;
+    float g2 = fbm(vec2(C * 0.34, A * 0.13) + vec2(-t * 0.28, t * 0.10));
+    col += vec3(0.55, 0.72, 0.95) * pow(max(g2 - 0.68, 0.0), 2.4) * 0.7;
+
+    // --- 6. 波尖微光: 世界锚定的细密闪烁 (远处看有细碎星光感) ---
+    float tw = vnoise(vec2(dg.x * 0.75, dg.y * 1.1) + vec2(t * 0.4, t * 0.3));
+    col += vec3(0.72, 0.86, 1.0) * pow(max(tw - 0.74, 0.0), 3.5) * 0.8;
+
+    // --- 7. 贴近海面 (深度放大) 时叠加屏幕尺度细闪, 避免放大后画面过空 ---
+    float zoomF = smoothstep(0.005, 0.0008, dps);
+    if (zoomF > 0.001) {
+        float z1 = vnoise(css * 0.028 + vec2(t * 1.4, -t * 1.9));
+        float z2 = vnoise(css * 0.11 + vec2(-t * 2.2, t * 2.7));
+        col += vec3(0.60, 0.76, 0.98) * (pow(max(z1 - 0.68, 0.0), 3.0) * 0.5 + pow(max(z2 - 0.76, 0.0), 3.5) * 0.45) * zoomF;
+    }
 
     gl_FragColor = vec4(col, 1.0);
 }`;
@@ -5014,9 +5057,10 @@ void main() {
         uDpr: gl.getUniformLocation(prog, 'u_dpr'),
         uAff: gl.getUniformLocation(prog, 'u_aff'),
         uTime: gl.getUniformLocation(prog, 'u_time'),
+        uInvS: gl.getUniformLocation(prog, 'u_invS'),
     };
 
-    return function render(w, h, dpr, aff, tMs) {
+    return function render(w, h, dpr, aff, invS, tMs) {
         // 画布尺寸重置会清空 GL 状态, 故每帧重绑, 保证健壮
         gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
         gl.useProgram(prog);
@@ -5027,6 +5071,7 @@ void main() {
         gl.uniform1f(loc.uDpr, dpr);
         gl.uniform4f(loc.uAff, aff.scaleX, aff.scaleY, aff.offX, aff.offY);
         gl.uniform1f(loc.uTime, tMs / 1000);
+        gl.uniform1f(loc.uInvS, invS);
         gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
 }
@@ -5068,9 +5113,12 @@ export function initOceanLayer(container, projection) {
         if (oceanTerrainCanvas.height !== ph) oceanTerrainCanvas.height = ph;
 
         const aff = computeOceanAffine(proj);
+        // 度/每 CSS 像素 (世界坐标换算; 防止 scale 过小除零)
+        const RAD = Math.PI / 180;
+        const invS = 1 / Math.max(proj.scale(), 1e-3) / RAD;
 
         // 1. WebGL 动态海水
-        if (oceanWaterRender) oceanWaterRender(w, h, dpr, aff, t);
+        if (oceanWaterRender) oceanWaterRender(w, h, dpr, aff, invS, t);
 
         // 2. 地形层: 先清空, 无 WebGL 时画静态底色, 再叠地形瓦片 (陆地着色, 海洋透明)
         const ctx = oceanTerrainCtx;
