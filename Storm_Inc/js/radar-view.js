@@ -45,6 +45,7 @@ export function initRadarScreen(container, worldGetter) {
         </div>
         <div class="rs-scope-wrap">
             <div class="rs-scope" id="rs-scope">
+                <canvas id="rs-base"></canvas>
                 <canvas id="rs-echo"></canvas>
                 <canvas id="rs-ui"></canvas>
                 <div class="rs-hud" id="rs-hud">
@@ -58,6 +59,7 @@ export function initRadarScreen(container, worldGetter) {
         </div>`;
     container.appendChild(root);
 
+    const baseCanvas = root.querySelector('#rs-base');
     const echoCanvas = root.querySelector('#rs-echo');
     const uiCanvas = root.querySelector('#rs-ui');
     const scopeEl = root.querySelector('#rs-scope');
@@ -78,6 +80,7 @@ export function initRadarScreen(container, worldGetter) {
         console.warn('Radar screen WebGL init failed:', e);
     }
 
+    const base = baseCanvas.getContext('2d');
     const ui = uiCanvas.getContext('2d');
     const dpr = () => window.devicePixelRatio || 1;
 
@@ -206,6 +209,10 @@ export function initRadarScreen(container, worldGetter) {
             scopeCss = size;
             scopeEl.style.width = size + 'px';
             scopeEl.style.height = size + 'px';
+            baseCanvas.width = Math.round(size * dpr());
+            baseCanvas.height = Math.round(size * dpr());
+            baseCanvas.style.width = size + 'px';
+            baseCanvas.style.height = size + 'px';
             uiCanvas.width = Math.round(size * dpr());
             uiCanvas.height = Math.round(size * dpr());
             uiCanvas.style.width = size + 'px';
@@ -229,9 +236,15 @@ export function initRadarScreen(container, worldGetter) {
             ? `${nearest.site.name}  ·  ${Math.round(nearest.km)} km`
             : 'NO GROUND SITE IN RANGE';
         centerEl.textContent = `CENTER ${Math.abs(cLat).toFixed(2)}°${cLat >= 0 ? 'N' : 'S'}  ${Math.abs(cLon).toFixed(2)}°${cLon >= 0 ? 'E' : 'W'} · ${RANGE_KM} KM RANGE`;
-        stormEl.textContent = cyclone && cyclone.named
-            ? `TRACKING ${(cyclone.name || '').toUpperCase() || 'SYSTEM'} · ${Math.round(cyclone.intensity || 0)} KT`
-            : (cyclone ? `TRACKING SYSTEM · ${Math.round(cyclone.intensity || 0)} KT` : 'TRACKING SITE');
+        let stormTxt = 'STANDBY · NO ACTIVE SYSTEM';
+        if (!cyclone) stormTxt = 'SITE OBSERVATION';
+        else if (cyclone.status === 'active') {
+            const nm = cyclone.named ? (cyclone.name ? cyclone.name.toUpperCase() : 'NAMED SYSTEM') : 'SYSTEM';
+            stormTxt = `TRACKING ${nm} · ${Math.round(cyclone.intensity || 0)} KT`;
+        } else if (cyclone.status === 'dissipated') {
+            stormTxt = `FINAL POSITION · ${(cyclone.name || '').toUpperCase() || 'SYSTEM'}`;
+        }
+        stormEl.textContent = stormTxt;
 
         // 4. 地理底图缓存
         const gKey = `${size}|${cLat.toFixed(2)}|${cLon.toFixed(2)}`;
@@ -240,7 +253,12 @@ export function initRadarScreen(container, worldGetter) {
             geoCache = buildGeo(worldGetter ? worldGetter() : null, cLat, cLon, pxPerKm, size);
         }
 
-        // 5. WebGL 回波
+        // 5. 地理底图 (最底层, 在回波之下)
+        base.setTransform(dpr(), 0, 0, dpr(), 0, 0);
+        base.clearRect(0, 0, size, size);
+        if (geoCache) base.drawImage(geoCache, 0, 0, size, size);
+
+        // 6. WebGL 回波 (覆盖在地理底图之上)
         if (echoRenderer && cyclone && cyclone.status === 'active') {
             try {
                 const proxy = Object.assign({}, state, { siteLon: cLon, siteLat: cLat });
@@ -250,12 +268,9 @@ export function initRadarScreen(container, worldGetter) {
             }
         }
 
-        // 6. UI 覆盖层
+        // 7. UI 覆盖层 (距离环/城市/站点/扫描线)
         ui.setTransform(dpr(), 0, 0, dpr(), 0, 0);
         ui.clearRect(0, 0, size, size);
-
-        // 6a. 底图 (已有背景色)
-        if (geoCache) ui.drawImage(geoCache, 0, 0, size, size);
 
         // 6b. 距离环与方位刻度
         ui.save();
@@ -369,20 +384,22 @@ export function initRadarScreen(container, worldGetter) {
         ui.stroke();
         ui.restore();
 
-        // 6f. 中心 (气旋) 标记
-        const pulse = 1 + 0.25 * Math.sin(now * 5);
-        ui.strokeStyle = 'rgba(255,80,110,0.95)';
-        ui.lineWidth = 1.6;
-        ui.beginPath();
-        ui.arc(centerPx, centerPx, 5 * pulse, 0, Math.PI * 2);
-        ui.stroke();
-        ui.fillStyle = 'rgba(255,90,120,0.9)';
-        ui.beginPath();
-        ui.arc(centerPx, centerPx, 2.2, 0, Math.PI * 2);
-        ui.fill();
-        drawText(ui, 'STORM CENTER', centerPx + 9, centerPx - 10, {
-            size: 9, color: 'rgba(255,150,170,0.95)', bold: true, align: 'left'
-        });
+        // 6f. 中心 (气旋) 标记 - 仅真实气旋 (非待机中心)
+        if (cyclone && cyclone.status === 'active') {
+            const pulse = 1 + 0.25 * Math.sin(now * 5);
+            ui.strokeStyle = 'rgba(255,80,110,0.95)';
+            ui.lineWidth = 1.6;
+            ui.beginPath();
+            ui.arc(centerPx, centerPx, 5 * pulse, 0, Math.PI * 2);
+            ui.stroke();
+            ui.fillStyle = 'rgba(255,90,120,0.9)';
+            ui.beginPath();
+            ui.arc(centerPx, centerPx, 2.2, 0, Math.PI * 2);
+            ui.fill();
+            drawText(ui, 'STORM CENTER', centerPx + 9, centerPx - 10, {
+                size: 9, color: 'rgba(255,150,170,0.95)', bold: true, align: 'left'
+            });
+        }
 
         lastState = state;
     }

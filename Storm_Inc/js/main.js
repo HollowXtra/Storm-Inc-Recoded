@@ -95,14 +95,8 @@ const checkLandWrapper = (lon, lat) => {
         } else {
             const screen = getRadarScreen();
             if (!screen) { state.radarMode = false; toggleLegendEl('radar-legend', false); return; }
-            if (radarFocusTarget() === false) {
-                // 没有气旋也没有站点, 无处聚焦 -> 退出雷达
-                state.radarMode = false;
-                toggleLegendEl('radar-legend', false);
-                screen.hide();
-                if (typeof requestRedraw === 'function') requestRedraw();
-                return;
-            }
+            // 没有气旋/站点时也会显示 (待机画面以地图中心为圆心, 展示城市/站点);
+            // 若连地图都还没有则下一帧 drawRadarScope 会自动退出
             screen.show();
         }
         if (typeof requestRedraw === 'function') requestRedraw();
@@ -895,15 +889,22 @@ world: null,
             if (radarOverlayCanvas) radarOverlayCanvas.classList.add('hidden');
 
             const screen = getRadarScreen();
-            const focus = radarFocusTarget();
+            let focus = radarFocusTarget();
+            if (focus === false && mapProjection && typeof mapProjection.center === 'function') {
+                // 待机: 以当前地图视野中心作为雷达中心
+                const pc = mapProjection.center();
+                if (pc && isFinite(pc[0]) && isFinite(pc[1]) && Math.abs(pc[0]) <= 180 && Math.abs(pc[1]) <= 90) {
+                    focus = { lon: pc[0], lat: pc[1], status: 'standby', named: false, intensity: 0 };
+                }
+            }
             if (!screen || focus === false) {
-                // 没有气旋也没有观测站, 无处聚焦 -> 退出雷达
+                // 连地图视野都还没有, 无处聚焦 -> 退出雷达
                 state.radarMode = false;
                 syncRadarUI();
                 return;
             }
             screen.show();
-            screen.frame(state, focus); // focus: 气旋对象 或 null (以站点为中心)
+            screen.frame(state, focus); // focus: 气旋/待机中心对象 或 null (以站点为中心)
             return;
         }
 
