@@ -233,6 +233,8 @@ export function initializeCyclone(world, month, basin = 'WPAC', globalTemp, glob
         ercState: 'none',
         ercEndTime: 0,
         ercMpiReduction: 0,
+        ercWeakenTarget: 0,     // 本次置换的强度目标 (不随步进随机漂移)
+        ercStartIntensity: 0,   // 置换开始前的强度, 用于恢复阶段回补
         ercSizeFactor: 1.0,
         eyewallReplacementActive: false,
         eyewallReplacementPhase: 'none',
@@ -251,7 +253,10 @@ export function initializeCyclone(world, month, basin = 'WPAC', globalTemp, glob
         circulationSize: 150 + Math.random() * 350,
         r34: 0, r50: 0, r64: 0,
         forecastLogs: {},
-        ace: 0
+        ace: 0,
+        // Wind shear readout (updated each tick once the storm is active)
+        shearKt: 0,
+        shearDir: 0
     };
 
 }
@@ -655,6 +660,7 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
 
     // --- Steering ---
     const { steerU, steerV, shearU, shearV } = calculateSteering(updatedCyclone.lon, updatedCyclone.lat, pressureSystems, { u: 0, v: 0 }, updatedCyclone.intensity);
+    // --- Wind Shear (tracked on the cyclone so the UI can show live shear) ---
     const physicalShear = Math.hypot(shearU, shearV) * 2.0;
     
     // Wind Shear
@@ -674,6 +680,10 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
         updatedCyclone.shearEventEndTime = updatedCyclone.age + (1 + Math.random()*48);
         updatedCyclone.shearEventMagnitude = -3 + Math.random() * 6 + 1.8 * Math.abs(month - 8) ** 0.5 + Math.max(0,(globalShearSetting / 10 - 10));
     }
+
+    // Shear magnitude (kt, model scale) + direction the shear is blowing toward
+    updatedCyclone.shearKt = Math.round(totalShear);
+    updatedCyclone.shearDir = (Math.atan2(shearU, shearV) * 180 / Math.PI + 360) % 360;
 
     // Movement - 更真实的物理模型
     let steeringDirection = (Math.atan2(steerU, steerV) * 180 / Math.PI + 360) % 360;
@@ -758,11 +768,27 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
         let mpi = sst > 25.0 ? 264.28 * (1 - Math.exp(-0.182 * (sst - 25.00))) : 0; // [保留]
         
         // ERC Logic
+        // NOTE: the weakening phase must stay *bounded* — the previous code
+        // subtracted up to 7*(intensity/90) kt on every 3-hour step, so a
+        // single cycle typically bled 40–85 kt out of the storm and could
+        // drive intensity below the 17 kt dissipation floor (the whole
+        // hurricane then vanished mid-eyewall-replacement). Each cycle now
+        // plans one modest dip target at start and eases toward it, then
+        // recovers toward the pre-cycle intensity.
         switch (updatedCyclone.ercState) {
             case 'weakening':
                 if (updatedCyclone.age < updatedCyclone.ercEndTime) {
-                    updatedCyclone.ercMpiReduction = Math.random() * 7 * Math.max(0,(updatedCyclone.intensity / 90)); 
-                    updatedCyclone.intensity -= updatedCyclone.ercMpiReduction;
+                    // One bounded target per cycle (≈6–15% dip, floor ~70 kt).
+                    const ercStartI = updatedCyclone.ercStartIntensity || updatedCyclone.intensity;
+                    const target = updatedCyclone.ercWeakenTarget
+                        || Math.max(70, ercStartI * (0.85 + Math.random() * 0.09));
+                    updatedCyclone.ercWeakenTarget = target;
+                    updatedCyclone.ercMpiReduction = Math.max(0, updatedCyclone.intensity - target);
+                    if (updatedCyclone.intensity > target) {
+                        const gap = updatedCyclone.intensity - target;
+                        const step = Math.min(gap, Math.max(0.4, gap * 0.3));
+                        updatedCyclone.intensity = Math.max(target, updatedCyclone.intensity - step);
+                    }
                 }
                 updatedCyclone.circulationSize *= 1.015; 
                 if (updatedCyclone.age >= updatedCyclone.ercEndTime) {
@@ -780,6 +806,12 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
                 break;
             case 'recovering':
                 updatedCyclone.circulationSize *= 0.995;
+                // Recover toward the pre-cycle intensity so the storm can
+                // regain (and even exceed) its former strength after ERC.
+                if (updatedCyclone.ercStartIntensity && updatedCyclone.intensity < updatedCyclone.ercStartIntensity) {
+                    const gap = updatedCyclone.ercStartIntensity - updatedCyclone.intensity;
+                    updatedCyclone.intensity += Math.max(0.6, gap * 0.2);
+                }
                 if (updatedCyclone.age >= updatedCyclone.ercEndTime) {
                     updatedCyclone.ercState = 'none';
                     updatedCyclone.isERCActive = false;
@@ -787,6 +819,8 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
                     updatedCyclone.eyewallReplacementPhase = 'complete';
                     updatedCyclone.lastEyewallReplacementAge = updatedCyclone.age;
                     updatedCyclone.ercMpiReduction = 0;
+                    updatedCyclone.ercWeakenTarget = 0;
+                    updatedCyclone.ercStartIntensity = 0;
                     updatedCyclone.hazardEvents.push({
                         type: 'eyewall-replacement',
                         phase: 'complete',
@@ -803,6 +837,13 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
                     updatedCyclone.eyewallReplacementPhase = 'contracting';
                     updatedCyclone.eyewallReplacementCount = (updatedCyclone.eyewallReplacementCount || 0) + 1;
                     updatedCyclone.eyewallReplacementStartAge = updatedCyclone.age;
+                    // Plan the whole dip up front so weakening never snowballs.
+                    updatedCyclone.ercStartIntensity = updatedCyclone.intensity;
+                    updatedCyclone.ercWeakenTarget = Math.max(
+                        70,
+                        updatedCyclone.intensity * (0.85 + Math.random() * 0.09)
+                    );
+                    updatedCyclone.ercMpiReduction = Math.max(0, updatedCyclone.intensity - updatedCyclone.ercWeakenTarget);
                     const weakeningDuration = 4 + Math.floor(Math.random() * 10);
                     updatedCyclone.ercEndTime = updatedCyclone.age + weakeningDuration * 3;
                     updatedCyclone.hazardEvents.push({

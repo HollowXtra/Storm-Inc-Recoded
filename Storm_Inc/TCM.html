@@ -494,6 +494,7 @@
     <!-- 2. 地图层 (核心显示区, Z-Index: 1) -->
     <div id="map-container" class="relative inset-0 z-[1] w-full h-full overflow-hidden bg-[#111827]">
         <canvas id="radar-canvas-layer" class="absolute top-0 left-0 w-full h-full pointer-events-none z-20 hidden"></canvas>
+        <canvas id="storm-fx-canvas" class="absolute top-0 left-0 w-full h-full pointer-events-none" style="z-index:30; pointer-events:none;"></canvas>
     </div>
 
     <!-- [新功能] 悬浮组件层 (Z-Index: 50) - 可拖拽 -->
@@ -797,6 +798,22 @@
                             </div>
                         </div>
 
+                        <div class="flex justify-between">
+                                <span><i class="fa-solid fa-cloud-showers-heavy mr-1 text-sky-400"></i>Storm Rain Peak:</span>
+                                <span id="rain-peak" class="font-bold text-sky-300">0 mm</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span><i class="fa-solid fa-bolt mr-1 text-yellow-400"></i>CG Lightning:</span>
+                                <span id="cg-strikes" class="font-bold text-yellow-400">0</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span><i class="fa-solid fa-plane mr-1 text-cyan-400"></i>Recon:</span>
+                                <span id="recon-status" class="font-bold text-slate-400">STANDBY</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span><i class="fa-solid fa-arrows-left-right mr-1 text-orange-400"></i>Shear:</span>
+                                <span id="shear-status" class="font-bold text-emerald-300">0 KT</span>
+                            </div>
                         <div id="best-track-container" class="hidden mt-auto pt-2">
                             <div class="text-[9px] font-bold text-green-500 mb-1 flex justify-between items-center">
                                 <span data-t="atcf_stream">ATCF DATA STREAM</span>
@@ -932,11 +949,23 @@
                     <button id="toggleWindFieldButton" class="bg-slate-900 border border-slate-600 text-slate-300 hover:text-cyan-400 w-8 h-8 rounded-lg flex items-center justify-center transition-all text-xs" title="100m Level Wind">
                         <i class="fa-solid fa-right-left"></i>
                     </button>
+                    <button id="toggleShearFieldButton" class="bg-slate-900 border border-slate-600 text-slate-300 hover:text-cyan-400 w-8 h-8 rounded-lg flex items-center justify-center transition-all text-xs" title="Deep-Layer Shear">
+                        <i class="fa-solid fa-arrows-up-down"></i>
+                    </button>
                     <button id="togglePathButton" class="bg-slate-900 border border-slate-600 text-slate-300 hover:text-cyan-400 w-8 h-8 rounded-lg flex items-center justify-center transition-all text-xs" title="Forecast">
                         <i class="fa-solid fa-route"></i>
                     </button>
                     <button id="toggleHistoryButton" class="bg-slate-900 border border-slate-600 text-slate-300 hover:text-cyan-400 w-8 h-8 rounded-lg flex items-center justify-center transition-all text-xs" title="History">
                         <i class="fa-solid fa-clock-rotate-left"></i>
+                    </button>
+                    <button id="toggleRainfallButton" class="bg-slate-900 border border-slate-600 text-slate-300 hover:text-cyan-400 w-8 h-8 rounded-lg flex items-center justify-center transition-all text-xs" title="Storm Rainfall">
+                        <i class="fa-solid fa-cloud-showers-heavy"></i>
+                    </button>
+                    <button id="toggleLightningButton" class="bg-slate-900 border border-slate-600 text-slate-300 hover:text-cyan-400 w-8 h-8 rounded-lg flex items-center justify-center transition-all text-xs" title="CG Lightning">
+                        <i class="fa-solid fa-bolt"></i>
+                    </button>
+                    <button id="reconButton" class="bg-slate-900 border border-slate-600 text-slate-600 w-8 h-8 rounded-lg flex items-center justify-center transition-all text-xs" title="Recon unavailable" disabled>
+                        <i class="fa-solid fa-plane"></i>
                     </button>
                     <button id="generateJTWCButton" class="hidden relative group bg-red-900/40 border border-red-500/50 text-red-400 hover:bg-red-600 hover:text-white w-24 h-8 rounded-lg flex items-center justify-center transition-all text-[10px] font-bold tracking-wider uppercase shadow-[0_0_15px_rgba(220,38,38,0.3)] animate-pulse" title="Open ICWC Products">
                                             <i class="fa-solid fa-file-contract mr-2"></i> ICWC

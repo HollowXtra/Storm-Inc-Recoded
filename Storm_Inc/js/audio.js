@@ -514,6 +514,68 @@ export function playCat5Sound() {
 }
 
 /**
+ * Thunder rumble for CG lightning strikes — filtered noise roll with a low
+ * sub thump and a long decaying tail through the shared reverb send.
+ */
+export function playThunder(strength = 1.0) {
+    initAudio();
+    if (isSFXMuted) return;
+    if (!noiseBuffer || !audioCtx) return;
+
+    const t = audioCtx.currentTime;
+    const duration = 1.1 + Math.random() * 0.9;
+    const startOffset = Math.random() * 0.6; // vary where in the noise we start
+    const s = Math.max(0.15, Math.min(1.2, strength));
+
+    // --- 1. Low rumble from filtered white noise ---
+    const src = audioCtx.createBufferSource();
+    src.buffer = noiseBuffer;
+    src.loop = true;
+    src.loopStart = startOffset;
+    src.loopEnd = startOffset + 1.5;
+
+    const lowpass = audioCtx.createBiquadFilter();
+    lowpass.type = 'lowpass';
+    lowpass.frequency.setValueAtTime(220 * s, t);
+    lowpass.frequency.exponentialRampToValueAtTime(90 * s, t + duration * 0.8);
+    lowpass.Q.value = 0.6;
+
+    const noiseGain = audioCtx.createGain();
+    noiseGain.gain.setValueAtTime(0.0001, t);
+    noiseGain.gain.linearRampToValueAtTime(0.5 * s, t + 0.02);       // crack
+    noiseGain.gain.exponentialRampToValueAtTime(0.22 * s, t + 0.09); // roll
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+
+    src.connect(lowpass);
+    lowpass.connect(noiseGain);
+    noiseGain.connect(masterGain);
+
+    // --- 2. Sub-bass thump for the initial strike ---
+    const osc = audioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(90, t);
+    osc.frequency.exponentialRampToValueAtTime(38, t + 0.6);
+
+    const subGain = audioCtx.createGain();
+    subGain.gain.setValueAtTime(0.0001, t);
+    subGain.gain.linearRampToValueAtTime(0.34 * s, t + 0.015);
+    subGain.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
+
+    const subFilter = audioCtx.createBiquadFilter();
+    subFilter.type = 'lowpass';
+    subFilter.frequency.value = 300;
+
+    osc.connect(subFilter);
+    subFilter.connect(subGain);
+    subGain.connect(masterGain);
+
+    osc.start(t);
+    osc.stop(t + 1.0);
+    src.start(t);
+    src.stop(t + duration + 0.1);
+}
+
+/**
  * Get analyser node for visualization
  */
 export function getAnalyser() {

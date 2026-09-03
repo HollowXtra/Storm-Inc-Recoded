@@ -3,7 +3,7 @@
  * 包含所有 D3.js 绘图函数。
  */
 import { getCategory, getPressureAt, windToPressure, directionToCompass, createGeoCircle, unwrapLongitude, calculateHollandPressure, getSST, calculateDistance } from './utils.js';
-import { getWindVectorAt } from './cyclone-model.js';
+import { getWindVectorAt, calculateSteering } from './cyclone-model.js';
 import { generatePathForecasts } from './forecast-models.js';
 import { getElevationAt, getLandStatus, getTerrainTile } from './terrain-data.js';
 
@@ -373,6 +373,8 @@ let landCanvas = null;      // 陆地检测用的离屏 Canvas
 let landCtx = null;
 let windCanvasLayer = null; // 风场显示的 Canvas DOM 元素
 let windCtx = null;         // 风场显示的绘图上下文
+let shearCanvasLayer = null; // 风切变场显示的 Canvas DOM 元素
+let shearCtx = null;         // 风切变场显示的绘图上下文
 let landGrid = null;
 let landGridWidth = 0;
 let landGridHeight = 0;
@@ -570,6 +572,128 @@ export function drawWindField(mapSvg, mapProjection, cyclone, pressureSystems, w
     drawBatch(batchLow, "rgba(34, 211, 238, 0.6)");
     drawBatch(batchHigh, "rgba(252, 165, 165, 0.7)");
     drawBatch(batchExt, "rgba(250, 120, 215, 0.8)");
+}
+
+// ============================================================
+// [新增] 深层层垂直风切变场 (Shear) - Canvas 箭头层
+// 每根箭头指向当地环境风切变矢量 (上层风 - 下层风),
+// 颜色按切变强度分级 (与风场图层同风格, 独立 canvas, z-index 20)。
+// ============================================================
+export function drawShearField(mapSvg, mapProjection, cyclone, pressureSystems) {
+    const { width, height } = mapSvg.node().getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+
+    // --- 1. Canvas 初始化 ---
+    if (!shearCanvasLayer) {
+        const container = mapSvg.node().parentNode;
+        shearCanvasLayer = document.createElement('canvas');
+        shearCanvasLayer.id = 'shear-canvas-layer';
+        shearCanvasLayer.style.position = 'absolute';
+        shearCanvasLayer.style.top = '0';
+        shearCanvasLayer.style.left = '0';
+        shearCanvasLayer.style.pointerEvents = 'none';
+        shearCanvasLayer.style.zIndex = '20';
+        container.appendChild(shearCanvasLayer);
+        shearCtx = shearCanvasLayer.getContext('2d', { alpha: true });
+    }
+
+    const logicalWidth = shearCanvasLayer.width / dpr;
+    const logicalHeight = shearCanvasLayer.height / dpr;
+
+    if (logicalWidth !== width || logicalHeight !== height) {
+        shearCanvasLayer.width = width * dpr;
+        shearCanvasLayer.height = height * dpr;
+        shearCanvasLayer.style.width = `${width}px`;
+        shearCanvasLayer.style.height = `${height}px`;
+        shearCtx.scale(dpr, dpr);
+    }
+
+    shearCtx.clearRect(0, 0, width, height);
+
+    if (!cyclone || cyclone.status !== 'active' || !pressureSystems || !Array.isArray(pressureSystems.upper)) return;
+
+    // --- 2. 分级批量数组 (坐标入组, 最后统一绘制) ---
+    const batchLow = [];   // < 10 (青色)
+    const batchMod = [];   // 10-20 (琥珀)
+    const batchHigh = [];  // 20-35 (橙红)
+    const batchExt = [];   // > 35 (红/紫)
+
+    // 视域范围跟随当前气旋中心 (与风场一致), 步长略粗以保证帧率
+    const GEO_RANGE = 18;
+    const GEO_STEP = 0.8;
+    const arrowScale = 0.75;
+    const headLen = 5;
+
+    const startLat = Math.floor(cyclone.lat - GEO_RANGE * 0.5);
+    const endLat = Math.ceil(cyclone.lat + GEO_RANGE * 0.5);
+    const startLon = Math.floor(cyclone.lon - GEO_RANGE);
+    const endLon = Math.ceil(cyclone.lon + GEO_RANGE);
+
+    // --- 3. 计算循环 (只计算, 不绘图) ---
+    for (let lat = startLat; lat <= endLat; lat += GEO_STEP) {
+        if (lat < -90 || lat > 90) continue;
+        const cosLat = Math.max(0.25, Math.cos(lat * Math.PI / 180));
+        for (let lon = startLon; lon <= endLon; lon += GEO_STEP) {
+            const proj = mapProjection([lon, lat]);
+            if (!proj || isNaN(proj[0]) || isNaN(proj[1])) continue;
+            const [x, y] = proj;
+            if (x < -20 || x > width + 20 || y < -20 || y > height + 20) continue;
+
+            const steering = calculateSteering(lon, lat, pressureSystems);
+            const shearKt = Math.hypot(steering.shearU, steering.shearV) * 2.0; // 与模型同尺度
+            if (shearKt < 1.0) continue;
+
+            const angle = Math.atan2(-steering.shearV, steering.shearU); // 屏幕方向 (+y 向下)
+            const len = Math.min(22, Math.max(5, shearKt * arrowScale));
+            const halfLen = len / 2;
+            const cos = Math.cos(angle);
+            const sin = Math.sin(angle);
+
+            const p1x = x - halfLen * cos; const p1y = y - halfLen * sin;
+            const p2x = x + halfLen * cos; const p2y = y + halfLen * sin;
+            const back1 = angle + Math.PI * 0.85;
+            const back2 = angle - Math.PI * 0.85;
+            let h1x = p2x, h1y = p2y, h2x = p2x, h2y = p2y;
+            if (len > 8) {
+                h1x = p2x + headLen * Math.cos(back1);
+                h1y = p2y + headLen * Math.sin(back1);
+                h2x = p2x + headLen * Math.cos(back2);
+                h2y = p2y + headLen * Math.sin(back2);
+            }
+
+            let targetBatch;
+            if (shearKt > 35) targetBatch = batchExt;
+            else if (shearKt > 20) targetBatch = batchHigh;
+            else if (shearKt > 10) targetBatch = batchMod;
+            else targetBatch = batchLow;
+
+            targetBatch.push(p1x, p1y, p2x, p2y, h1x, h1y, h2x, h2y);
+        }
+    }
+
+    // --- 4. 批量绘制 ---
+    shearCtx.lineWidth = 1.5;
+    shearCtx.lineCap = 'round';
+    shearCtx.lineJoin = 'round';
+
+    const drawBatch = (batch, color) => {
+        if (batch.length === 0) return;
+        shearCtx.beginPath();
+        shearCtx.strokeStyle = color;
+        for (let i = 0; i < batch.length; i += 8) {
+            shearCtx.moveTo(batch[i], batch[i + 1]);
+            shearCtx.lineTo(batch[i + 2], batch[i + 3]);
+            shearCtx.moveTo(batch[i + 4], batch[i + 5]);
+            shearCtx.lineTo(batch[i + 2], batch[i + 3]);
+            shearCtx.lineTo(batch[i + 6], batch[i + 7]);
+        }
+        shearCtx.stroke();
+    };
+
+    drawBatch(batchLow, "rgba(94, 234, 212, 0.65)");
+    drawBatch(batchMod, "rgba(251, 191, 36, 0.75)");
+    drawBatch(batchHigh, "rgba(249, 115, 22, 0.85)");
+    drawBatch(batchExt, "rgba(244, 63, 94, 0.95)");
 }
 
 function getUnwrappedPath(track) {
@@ -1074,6 +1198,7 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
         showWindRadii = false,
         showPathPoints = false,
         showWindField = false,
+        showShearField = false,
         siteName = null,
         siteLon = null,
         siteLat = null,
@@ -1164,6 +1289,15 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
     } else {
         if (typeof windCtx !== 'undefined' && windCtx && typeof windCanvasLayer !== 'undefined' && windCanvasLayer) {
             windCtx.clearRect(0, 0, windCanvasLayer.width, windCanvasLayer.height);
+        }
+    }
+
+    // 4b. [新增] 风切变场 (Canvas) - 独立层 (z-index 20, 位于风暴特效下方)
+    if (showShearField && cyclone && cyclone.status === 'active') {
+        drawShearField(mapSvg, mapProjection, cyclone, pressureSystems);
+    } else {
+        if (typeof shearCtx !== 'undefined' && shearCtx && typeof shearCanvasLayer !== 'undefined' && shearCanvasLayer) {
+            shearCtx.clearRect(0, 0, shearCanvasLayer.width, shearCanvasLayer.height);
         }
     }
 

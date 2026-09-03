@@ -15,6 +15,7 @@ import { generatePathForecasts } from './forecast-models.js';
 // [修改] 引入新的历史强度图绘制函数
 import { drawMap, drawFinalPath, drawHistoricalIntensityChart, drawHumidityField, calculateBackgroundHumidity, calculateTotalHumidity, drawAllHistoryTracks, renderJTWCStyle, renderProbabilitiesStyle, drawStationGraph, renderPhaseSpace, startNewsAnimation, renderStationSynopticChart, initOceanLayer, setCameraZoomFactor, getCameraZoomFactor } from './visualization.js';
 import { initRadarScreen } from './radar-view.js';
+import { createStormFxState, resetStormFxState, accumulateStormRainfall, advanceFxWall, replanReconMission, startReconMission, canLaunchRecon, renderStormFx, hasFxContent } from './storm-fx.js';
 
 // [新增] 镜头缩放动画 (气旋形成时推进放大 / 消亡时拉远)
 // 只负责按时间驱动相机系数; 具体的重绘由调用方通过 onFrame 回调完成
@@ -39,7 +40,7 @@ function startCameraZoomAnim(duration, from, to, onFrame) {
     requestAnimationFrame(step);
 }
 
-import { playClick, playToggleOn, playToggleOff, playStart, playError, playAlert, playUpgradeSound, playCat5Sound, toggleSFX } from './audio.js';
+import { playClick, playThunder, playToggleOn, playToggleOff, playStart, playError, playAlert, playUpgradeSound, playCat5Sound, toggleSFX } from './audio.js';
 
 const checkLandWrapper = (lon, lat) => {
     const status = getLandStatus(lon, lat);
@@ -280,6 +281,7 @@ const checkLandWrapper = (lon, lat) => {
             }
             if (radarScreen && radarScreen.isVisible()) radarScreen.hide();
         }
+        stormFxFrame(performance.now());
         stats.end();
         requestAnimationFrame(animate);
     }
@@ -317,6 +319,7 @@ world: null,
         customLat: null,
         showPathPoints: false,
         showWindField: false,
+        showShearField: false,
         history: [],
         simulationCount: 1,
         nextNameIndex: 0,
@@ -328,10 +331,14 @@ world: null,
         currentSiteData: null,
         siteHistory: [],
         isSiteSelected: false,
-        idleRotation: Math.random() * 50
+        idleRotation: Math.random() * 50,
+        showLightning: true,
+        showRainfall: true
     };
 
-    let mapSvg, mapProjection;
+    let fx = createStormFxState();
+    let fxDrewLast = false;
+    let mapSvg, mapProjection;
     let radarCanvas, radarCtx;
     if (savedSiteName) siteNameInput.value = savedSiteName;
     if (savedSiteLon) siteLonInput.value = savedSiteLon;
@@ -1064,6 +1071,22 @@ function updateWarningPanel() {
         addProduct('EYEWALL REPLACEMENT ADVISORY', 'ADVISORY', `Cycle ${cyclone.eyewallReplacementCount || 1}: ${phase}. Wind intensity may fluctuate while the wind field expands.`, 'violet', 'fa-bullseye');
     }
 
+        // [新增] 侦察机定位与降雨量产品
+    if (fx && fx.recon && fx.recon.lastFix) {
+        const lastFix = fx.recon.lastFix;
+        if ((cyclone.age || 0) - (lastFix.age || 0) <= 12) {
+            addProduct(`RECON FIX ${(lastFix.tail || 'ICWC-42').trim()}`, 'AIRCRAFT REPORT',
+                `Latest center fix: ${lastFix.mslp} mb minimum sea-level pressure, peak flight-level wind ${lastFix.windKt} kt near the center.`,
+                'cyan', 'fa-plane');
+        }
+    }
+    const stormRainPeak = (fx && fx.rain) ? Math.round(fx.rain.peakMm || 0) : 0;
+    if (stormRainPeak >= 120 && (cyclone.isLand || cyclone.isNearLand)) {
+        addProduct('RAINFALL / FLOODING', 'ADVISORY',
+            `Storm-total rainfall of ${stormRainPeak} mm has accumulated near the circulation over land; prolonged and life-threatening flooding is possible.`,
+            'blue', 'fa-cloud-rain');
+    }
+
     const warningCount = products.filter(product => product.status === 'IN EFFECT').length;
     const watchCount = products.filter(product => product.title.includes('WATCH')).length;
     const headlineProduct = products.find(product => product.status === 'IN EFFECT') || products.find(product => product.title.includes('WATCH')) || products.find(product => product.title === stormName) || products[0];
@@ -1090,7 +1113,8 @@ function updateWarningPanel() {
         orange: { border: 'border-orange-500', badge: 'bg-orange-100 text-orange-700', icon: 'text-orange-600' },
         yellow: { border: 'border-yellow-500', badge: 'bg-yellow-100 text-yellow-800', icon: 'text-yellow-700' },
         blue: { border: 'border-blue-600', badge: 'bg-blue-100 text-blue-700', icon: 'text-blue-600' },
-        violet: { border: 'border-violet-600', badge: 'bg-violet-100 text-violet-700', icon: 'text-violet-600' }
+        violet: { border: 'border-violet-600', badge: 'bg-violet-100 text-violet-700', icon: 'text-violet-600' },
+        cyan: { border: 'border-cyan-600', badge: 'bg-cyan-100 text-cyan-700', icon: 'text-cyan-600' }
     };
     const productMarkup = products.length > 0
         ? products.map(product => {
@@ -1229,6 +1253,11 @@ function updateWarningPanel() {
         else if (type === 'PURPLE') {
             themeColor = '#a855f7'; // Purple-500 (亮紫色)
             borderColor = 'border-[#a855f7]';
+        }
+
+        else if (type === 'BLUE') {
+            themeColor = '#0e7490'; // 侦察机遥测 (cyan-700)
+            borderColor = 'border-[#0e7490]';
         }
 
         // 3. 创建 DOM 元素
@@ -1430,6 +1459,52 @@ function updateInfoPanel() {
         const ercState = state.cyclone.eyewallReplacementActive ? (state.cyclone.eyewallReplacementPhase || 'active').toUpperCase() : 'NOMINAL';
         ercEl.textContent = `${ercState} / ${state.cyclone.eyewallReplacementCount || 0}`;
     }
+                // [新增] 遥测: 累计降雨峰值 / 闪电计数 / 侦察状态
+        const rainPeakEl = document.getElementById('rain-peak');
+        if (rainPeakEl) {
+            const peak = fx && fx.rain ? Math.round(fx.rain.peakMm || 0) : 0;
+            rainPeakEl.textContent = `${peak} mm`;
+            rainPeakEl.className = `font-bold ${peak >= 300 ? 'text-red-300' : peak >= 150 ? 'text-amber-300' : 'text-sky-300'}`;
+        }
+        const strikesEl = document.getElementById('cg-strikes');
+        if (strikesEl) {
+            const strikeCount = fx && fx.lightning ? fx.lightning.total : 0;
+            strikesEl.textContent = String(strikeCount);
+            strikesEl.className = strikeCount > 60 ? 'font-bold text-yellow-300' : 'font-bold text-yellow-400';
+        }
+        const reconEl = document.getElementById('recon-status');
+        if (reconEl) {
+            let reconText = 'STANDBY';
+            let reconCls = 'font-bold text-slate-400';
+            if (fx && fx.recon) {
+                const mission = fx.recon.aircraft;
+                const lastFix = fx.recon.lastFix;
+                if (mission) {
+                    reconText = `${mission.tail} ${Math.min(99, Math.round((mission.frac || 0) * 100))}%`;
+                    reconCls = 'font-bold text-amber-300 animate-pulse';
+                } else if (lastFix && (state.cyclone.age || 0) - (lastFix.age || 0) <= 15) {
+                    reconText = `${lastFix.tail || 'ICWC'} ${lastFix.mslp || 0} MB`;
+                    reconCls = 'font-bold text-cyan-300';
+                } else if (fx.recon.flights && fx.recon.flights.length) {
+                    reconText = `DONE ×${fx.recon.flights.length}`;
+                }
+            }
+            reconEl.textContent = reconText;
+            reconEl.className = reconCls;
+        }
+        // [新增] 遥测: 实时风切变 (数值随模型步进更新, 方向为切变矢量指向)
+        const shearEl = document.getElementById('shear-status');
+        if (shearEl) {
+            const shearKt = Math.round(state.cyclone.shearKt || 0);
+            const shearEvt = !!state.cyclone.shearEventActive;
+            const shearDirText = directionToCompass((state.cyclone.shearDir || 0));
+            let shearCls = 'font-bold text-emerald-300';
+            if (shearKt >= 25) shearCls = 'font-bold text-red-300';
+            else if (shearKt >= 10) shearCls = 'font-bold text-amber-300';
+            shearEl.textContent = `${shearKt} KT ${shearDirText}${shearEvt ? ' • EVENT' : ''}`;
+            shearEl.className = shearEvt ? `${shearCls} animate-pulse` : shearCls;
+        }
+
         const isLand = state.cyclone.isLand || false;
         const currentSST = getSST(state.cyclone.lat, state.cyclone.lon, state.currentMonth, state.GlobalTemp);
         const basin = basinSelector.value || 'WPAC'; // 默认西太
@@ -1693,8 +1768,144 @@ function updateInfoPanel() {
 
     // --- 核心模拟循环 ---
 
-    function updateSimulation() {
+        // ============================================================
+    // [新增] 天气特效每帧驱动: 闪电 / 降雨渲染 / 侦察机任务
+    // ============================================================
+    let lastFxButtonsUpdate = 0;
+
+    function updateFxButtons() {
+        const btn = document.getElementById('reconButton');
+        if (!btn || !fx) return;
+        // Remove any dynamic state classes first, then apply exactly one state.
+        const dynamic = [
+            'bg-red-900/40', 'border-red-500/70', 'text-red-300',
+            'bg-cyan-900/40', 'border-cyan-500/60', 'text-cyan-300',
+            'hover:bg-cyan-800/40', 'animate-pulse'
+        ];
+        btn.classList.remove(...dynamic);
+        const mission = fx.recon && fx.recon.aircraft;
+        if (mission) {
+            btn.classList.add('bg-red-900/40', 'border-red-500/70', 'text-red-300', 'animate-pulse');
+            btn.title = `${mission.tail} en route — ${Math.min(99, Math.round((mission.frac || 0) * 100))}% of pattern flown`;
+            btn.disabled = true;
+        } else if (canLaunchRecon(fx, state.cyclone)) {
+            btn.classList.add('bg-cyan-900/40', 'border-cyan-500/60', 'text-cyan-300', 'hover:bg-cyan-800/40', 'animate-pulse');
+            btn.title = 'Launch Hurricane Hunter recon sortie (alpha pattern)';
+            btn.disabled = false;
+        } else {
+            // Default HTML styling already reads as “unavailable”.
+            btn.title = 'Recon unavailable — requires an active tropical cyclone over open water';
+            btn.disabled = true;
+        }
+    }
+
+    function handleFxEvents(events) {
+        if (!events || !events.length) return;
+        let infoDirty = false;
+        let opsDirty = false;
+        for (const ev of events) {
+            if (!ev || !ev.type) continue;
+            const age = (state.cyclone && state.cyclone.age) || 0;
+            if (ev.type === 'strike') {
+                infoDirty = true;
+                if (ev.playSfx) playThunder(0.55 + Math.random() * 0.7);
+            } else if (ev.type === 'fix') {
+                infoDirty = true;
+                opsDirty = true;
+                triggerNewsBanner(
+                    `<span class="text-base align-middle ml-2 font-black">CENTER FIX — ${ev.mslp} MB / ${ev.windKt} KT</span>`,
+                    `${ev.tail} RECON • AIRCRAFT REPORT`,
+                    ev.age != null ? ev.age : age,
+                    state.currentMonth,
+                    'BLUE'
+                );
+            } else if (ev.type === 'launch') {
+                triggerNewsBanner(
+                    `<span class="text-base align-middle ml-2 font-bold">ALPHA SORTIE DEPLOYED</span>`,
+                    `${ev.tail} RECON`,
+                    age,
+                    state.currentMonth,
+                    'BLUE'
+                );
+            } else if (ev.type === 'complete') {
+                opsDirty = true;
+                triggerNewsBanner(
+                    `<span class="text-base align-middle ml-2 font-bold">${ev.fixes} FIX${ev.fixes === 1 ? '' : 'ES'} • ${ev.sondeCount} SONDES</span>`,
+                    `${ev.tail} MISSION COMPLETE`,
+                    age,
+                    state.currentMonth,
+                    'BLUE'
+                );
+            } else if (ev.type === 'abort') {
+                opsDirty = true;
+                triggerNewsBanner(
+                    `<span class="text-base align-middle ml-2 font-bold">MISSION ABORTED</span>`,
+                    `${ev.tail} RECON`,
+                    age,
+                    state.currentMonth,
+                    'BLUE'
+                );
+            }
+        }
+        if (infoDirty) updateInfoPanel();
+        if (opsDirty) updateWarningPanel();
+        updateFxButtons();
+    }
+
+    function stormFxFrame(now) {
+        if (!fx) return;
+        const fxCanvasEl = document.getElementById('storm-fx-canvas');
+        if (!fxCanvasEl || typeof mapProjection === 'undefined' || !mapProjection) return;
+        const cyclone = state.cyclone;
+        const hasMapTrack = Boolean(state.world && cyclone && cyclone.track && cyclone.track.length > 0);
+        const mapVisible = hasMapTrack && !state.radarMode && !state.dopplerMode;
+
+        const simCtx = {
+            month: state.currentMonth,
+            basin: (cyclone && (cyclone.basin || basinSelector.value)) || 'WPAC',
+            pressureSystems: state.pressureSystems || { lower: [] }
+        };
+
+        const events = advanceFxWall(fx, cyclone, simCtx, now, state.isPaused);
+        if (events.length) handleFxEvents(events);
+        if (now - lastFxButtonsUpdate > 450) {
+            updateFxButtons();
+            lastFxButtonsUpdate = now;
+        }
+
+        // 尺寸同步 + 渲染只在确有内容时进行, 空场景跳过布局读取 (每帧省一次 forced reflow)
+        const needsDraw = mapVisible && hasFxContent(fx);
+        if (needsDraw) {
+            const rect = fxCanvasEl.getBoundingClientRect();
+            const cssW = Math.max(1, Math.round(rect.width));
+            const cssH = Math.max(1, Math.round(rect.height));
+            if (fxCanvasEl.width !== cssW || fxCanvasEl.height !== cssH) {
+                fxCanvasEl.width = cssW;
+                fxCanvasEl.height = cssH;
+            }
+            const fxCtx = fxCanvasEl.getContext('2d');
+            if (!fxCtx) return;
+            renderStormFx(fxCtx, fxCanvasEl, fx, cyclone, mapProjection, now);
+            fxDrewLast = true;
+        } else if (fxDrewLast) {
+            const fxCtx = fxCanvasEl.getContext('2d');
+            if (fxCtx) fxCtx.clearRect(0, 0, fxCanvasEl.width, fxCanvasEl.height);
+            fxDrewLast = false;
+        }
+    }
+
+    function updateSimulation() {
         if (state.cyclone.status !== 'active') {
+            // [新增] 系统消亡时自动中止侦察任务
+            if (fx && fx.recon && fx.recon.aircraft) {
+                const fxSim = {
+                    month: state.currentMonth,
+                    basin: state.cyclone.basin || basinSelector.value || 'WPAC',
+                    pressureSystems: state.pressureSystems
+                };
+                const fxEvents = advanceFxWall(fx, state.cyclone, fxSim, performance.now(), false);
+                if (fxEvents.length) handleFxEvents(fxEvents);
+            }
             clearInterval(state.simulationInterval);
             state.simulationInterval = null;
             state.isPaused = false;
@@ -1863,6 +2074,24 @@ function updateInfoPanel() {
         state.frontalZone = updateFrontalZone(state.pressureSystems, state.currentMonth, state.GlobalTemp, state.GlobalShear);
         state.cyclone = updateCycloneState(state.cyclone, state.pressureSystems, state.frontalZone, state.world, state.currentMonth, state.GlobalTemp, state.GlobalShear, state.nextNameIndex);
         state.cyclone.currentMonth = state.currentMonth;
+        // [新增] 动态天气步进: 累计降雨 + 更新侦察航路锚点
+        if (fx && state.cyclone.status === 'active') {
+            accumulateStormRainfall(fx, state.cyclone, {
+                pressureSystems: state.pressureSystems,
+                month: state.currentMonth,
+                basin: state.cyclone.basin || basinSelector.value || 'WPAC',
+                spanHours: 3
+            });
+            replanReconMission(fx, state.cyclone, state.simulationSpeed);
+            // [新增] rAF 兜底: 后台标签页 rAF 被节流时特效仍随模型步推进
+            const fxSim = {
+                month: state.currentMonth,
+                basin: state.cyclone.basin || basinSelector.value || 'WPAC',
+                pressureSystems: state.pressureSystems
+            };
+            const fxEvents = advanceFxWall(fx, state.cyclone, fxSim, performance.now(), false);
+            if (fxEvents.length) handleFxEvents(fxEvents);
+        }
         if (state.cyclone.status === 'active') {
             // 为了节省内存，我们只存 keyframe (比如对应 track 的每一个点)
             // 假设 updateTimer 触发 track 更新时刻：
@@ -1992,6 +2221,7 @@ updateWarningPanel();
             siteLat: state.siteLat,
             showPathPoints: state.showPathPoints,
             showWindField: state.showWindField,
+            showShearField: state.showShearField,
             month: state.currentMonth,
             siteHistory: state.siteHistory,
             siteData: state.currentSiteData,
@@ -2024,6 +2254,12 @@ updateWarningPanel();
         state.hasTriggeredCat5News = false;
         state.siteHistory = []; 
         state.pressureHistory = [];
+        if (fx) {
+            resetStormFxState(fx);
+            fx.showLightning = state.showLightning;
+            fx.showRainfall = state.showRainfall;
+        }
+        fxDrewLast = false;
         state.isSiteSelected = false;
         state.selectedHistoryCyclone = null;
         if (!state.world) return;
@@ -2098,10 +2334,13 @@ if (yearSelector) yearSelector.disabled = true;
         state.pathForecasts = generatePathForecasts(state.cyclone, state.pressureSystems, checkLandWrapper, state.GlobalTemp, state.GlobalShear);
         updateInfoPanel();
         updateMapInfoBox();
-        updateWarningPanel();
-        updateToggleButtonVisual(togglePressureButton, state.showPressureField);
+        updateWarningPanel();        updateToggleButtonVisual(togglePressureButton, state.showPressureField);
         updateToggleButtonVisual(toggleWindRadiiButton, state.showWindRadii);
+        updateToggleButtonVisual(document.getElementById('toggleShearFieldButton'), state.showShearField);
         updateToggleButtonVisual(togglePathButton, state.showPathForecast);
+        updateToggleButtonVisual(document.getElementById('toggleLightningButton'), state.showLightning);
+        updateToggleButtonVisual(document.getElementById('toggleRainfallButton'), state.showRainfall);
+        updateFxButtons();
         state.simulationInterval = setInterval(updateSimulation, state.simulationSpeed);
     }
     
@@ -2159,6 +2398,7 @@ if (yearSelector) yearSelector.disabled = true;
                     siteLat: state.siteLat,
                     showPathPoints: state.showPathPoints,
                     showWindField: showWindField,
+                    showShearField: state.showShearField,
                     month: state.currentMonth,
                     siteHistory: state.siteHistory,
                     siteData: siteDataToPass,
@@ -2504,6 +2744,7 @@ if (yearSelector) yearSelector.disabled = true;
     document.getElementById('togglePressureButton').onclick = () => toggleState('showPressureField', 'togglePressureButton');
     document.getElementById('toggleHumidityButton').onclick = () => toggleState('showHumidityField', 'toggleHumidityButton');
     document.getElementById('toggleWindFieldButton').onclick = () => toggleState('showWindField', 'toggleWindFieldButton');
+    document.getElementById('toggleShearFieldButton').onclick = () => toggleState('showShearField', 'toggleShearFieldButton');
     document.getElementById('togglePathButton').onclick = () => toggleState('showPathForecast', 'togglePathButton');
 
     // 对于带图例的特殊处理 (Wind Radii)
@@ -2517,6 +2758,37 @@ if (yearSelector) yearSelector.disabled = true;
             setTimeout(() => legend.classList.add('hidden'), 300);
         }
     });
+
+        // [新增] 降雨 / 闪电图层开关
+    document.getElementById('toggleRainfallButton').onclick = () => {
+        state.showRainfall = !state.showRainfall;
+        if (fx) fx.showRainfall = state.showRainfall;
+        const btn = document.getElementById('toggleRainfallButton');
+        updateToggleButtonVisual(btn, state.showRainfall);
+        if (state.showRainfall) playToggleOn(); else playToggleOff();
+        requestRedraw();
+    };
+    document.getElementById('toggleLightningButton').onclick = () => {
+        state.showLightning = !state.showLightning;
+        if (fx) fx.showLightning = state.showLightning;
+        const btn = document.getElementById('toggleLightningButton');
+        updateToggleButtonVisual(btn, state.showLightning);
+        if (state.showLightning) playToggleOn(); else playToggleOff();
+        requestRedraw();
+    };
+    // [新增] 侦察机任务
+    document.getElementById('reconButton').onclick = () => {
+        if (!fx || !state.cyclone || state.isPaused) return;
+        const simCtx = {
+            month: state.currentMonth,
+            basin: state.cyclone.basin || basinSelector.value || 'WPAC',
+            pressureSystems: state.pressureSystems,
+            speed: state.simulationSpeed
+        };
+        handleFxEvents(startReconMission(fx, state.cyclone, simCtx));
+        updateFxButtons();
+    };
+    updateFxButtons();
 
     musicButton.onclick = (e) => {
         e.stopPropagation();
@@ -2617,6 +2889,7 @@ if (yearSelector) yearSelector.disabled = true;
                      siteLat: state.siteLat,
                      showPathPoints: state.showPathPoints,
                      showWindField: state.showWindField,
+                     showShearField: state.showShearField,
                      month: state.currentMonth,
                      siteHistory: state.siteHistory,
                      siteData: state.currentSiteData,
@@ -2902,7 +3175,8 @@ if (yearSelector) yearSelector.disabled = true;
                 orange: { border: 'border-orange-500', badge: 'bg-orange-100 text-orange-700', icon: 'text-orange-600' },
                 yellow: { border: 'border-yellow-500', badge: 'bg-yellow-100 text-yellow-800', icon: 'text-yellow-700' },
                 blue: { border: 'border-blue-600', badge: 'bg-blue-100 text-blue-700', icon: 'text-blue-600' },
-                violet: { border: 'border-violet-600', badge: 'bg-violet-100 text-violet-700', icon: 'text-violet-600' }
+                violet: { border: 'border-violet-600', badge: 'bg-violet-100 text-violet-700', icon: 'text-violet-600' },
+        cyan: { border: 'border-cyan-600', badge: 'bg-cyan-100 text-cyan-700', icon: 'text-cyan-600' }
             };
             const productMarkup = products.length > 0 ? products.map(product => {
                 const style = toneStyles[product.tone] || toneStyles.red;
