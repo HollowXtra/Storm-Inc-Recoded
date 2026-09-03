@@ -898,7 +898,7 @@ function drawHazardOverlays(container, mapProjection, cyclone) {
 
 function getInvestOutlookColor(chance) {
     if (chance >= 70) return '#d71920';
-    if (chance >= 40) return '#f59e0b';
+    if (chance >= 40) return '#fb923c';
     return '#facc15';
 }
 
@@ -935,84 +935,121 @@ function getInvestForecastTrack(cyclone, pathForecasts) {
         });
     }
 
+    // Dead-reckoning fallback: step the invest along its current heading,
+    // placing explicit 48-hour and 72-hour nodes so the two-stage outlook
+    // geometry can always nest a 48-hour corridor inside the 7-day one.
     const heading = (Number(cyclone.direction) || 0) * Math.PI / 180;
-    const travelDeg = Math.max(5, Math.min(18, (Number(cyclone.speed) || 10) * 1.852 * 72 / 111));
-    const targetLat = cyclone.lat + Math.cos(heading) * travelDeg;
-    const targetLon = currentPoint[0] + Math.sin(heading) * travelDeg / Math.max(0.35, Math.cos(cyclone.lat * Math.PI / 180));
-    return [currentPoint, [targetLon, targetLat]];
+    const cosLat = Math.max(0.35, Math.cos(cyclone.lat * Math.PI / 180));
+    const speedKmh = (Number(cyclone.speed) || 10) * 1.852;
+    const pointAtHours = hours => {
+        const travelDeg = Math.max(5, Math.min(18, speedKmh * hours / 111));
+        return [
+            currentPoint[0] + Math.sin(heading) * travelDeg / cosLat,
+            cyclone.lat + Math.cos(heading) * travelDeg
+        ];
+    };
+    return [currentPoint, pointAtHours(48), pointAtHours(72)];
 }
 
-function createInvestDevelopmentArea(cyclone, pathForecasts, chance7d) {
-    const forecastTrack = getInvestForecastTrack(cyclone, pathForecasts);
-    if (forecastTrack.length < 2) return null;
-
-    const leftBoundary = [];
-    const rightBoundary = [];
-    const finalIndex = forecastTrack.length - 1;
-    const maxWidth = 2.5 + chance7d * 0.045;
-
-    forecastTrack.forEach((point, index) => {
-        const previous = forecastTrack[Math.max(0, index - 1)];
-        const next = forecastTrack[Math.min(finalIndex, index + 1)];
+// Build the growing left/right boundaries of an uncertainty corridor that
+// follows an ordered lon/lat track (node half-width grows toward endWidthDeg).
+function buildInvestCorridorBoundary(trackPoints, endWidthDeg) {
+    const last = trackPoints.length - 1;
+    const left = [];
+    const right = [];
+    trackPoints.forEach((point, index) => {
+        const previous = trackPoints[Math.max(0, index - 1)];
+        const next = trackPoints[Math.min(last, index + 1)];
         const latitude = point[1];
         const cosineLatitude = Math.max(0.35, Math.cos(latitude * Math.PI / 180));
         const dx = (next[0] - previous[0]) * cosineLatitude;
         const dy = next[1] - previous[1];
         const tangent = Math.atan2(dy, dx);
         const normal = tangent + Math.PI / 2;
-        const progress = index / finalIndex;
-        const width = 1.25 + progress * maxWidth;
-        leftBoundary.push([
+        const progress = last === 0 ? 1 : index / last;
+        const width = 1.25 + progress * (endWidthDeg - 1.25);
+        left.push([
             point[0] + width * Math.cos(normal) / cosineLatitude,
             point[1] + width * Math.sin(normal)
         ]);
-        rightBoundary.push([
+        right.push([
             point[0] + width * Math.cos(normal + Math.PI) / cosineLatitude,
             point[1] + width * Math.sin(normal + Math.PI)
         ]);
     });
+    return { left, right };
+}
 
+function investCorridorToFeature(left, right) {
     return {
-        feature: {
-            type: 'Feature',
-            properties: {},
-            geometry: {
-                type: 'Polygon',
-                coordinates: [[...leftBoundary, ...rightBoundary.reverse(), leftBoundary[0]]]
-            }
-        },
-        current: forecastTrack[0],
-        target: forecastTrack[finalIndex]
+        type: 'Feature',
+        properties: {},
+        geometry: {
+            type: 'Polygon',
+            coordinates: [[...left, ...right.slice().reverse(), left[0]]]
+        }
     };
 }
 
-function ensureInvestMapDefinitions(mapSvg, color) {
+// NHC-style two-stage development outlook for an INVEST: a broad 7-day
+// corridor plus a nested 48-hour corridor sharing the same near boundary.
+function createInvestOutlookGeometry(cyclone, pathForecasts, chance48h, chance7d) {
+    const forecastTrack = getInvestForecastTrack(cyclone, pathForecasts);
+    if (forecastTrack.length < 2) return null;
+
+    const lastIndex = forecastTrack.length - 1;
+    const modelTrack = pathForecasts?.[0]?.track;
+    const hasModelTrack = Array.isArray(modelTrack) && modelTrack.length > 1;
+
+    // 48-hour cutoff: model steps are 3-hourly (index 16 = 48 h), while the
+    // dead-reckoning fallback carries an explicit 48 h node at index 1.
+    const modelIdx48 = hasModelTrack ? Math.min(Math.round(48 / 3), lastIndex) : 1;
+    const idx48 = Math.max(1, Math.min(modelIdx48, lastIndex));
+
+    // 7-day corridor spans the whole forecast track; the 48-hour corridor is
+    // the nested near portion of the same boundary geometry.
+    const boundary7 = buildInvestCorridorBoundary(forecastTrack, 2.5 + chance7d * 0.045);
+    const left48 = boundary7.left.slice(0, idx48 + 1);
+    const right48 = boundary7.right.slice(0, idx48 + 1);
+
+    return {
+        feature7: investCorridorToFeature(boundary7.left, boundary7.right),
+        feature48: investCorridorToFeature(left48, right48),
+        current: forecastTrack[0],
+        mid48: forecastTrack[idx48],
+        target: forecastTrack[lastIndex]
+    };
+}
+
+function ensureInvestMapDefinitions(mapSvg, color, key) {
     let defs = mapSvg.select('defs');
     if (defs.empty()) defs = mapSvg.append('defs');
 
-    let hatch = defs.select('#invest-outlook-hatch');
+    const hatchId = 'invest-outlook-hatch-' + key;
+    let hatch = defs.select('#' + hatchId);
     if (hatch.empty()) {
         hatch = defs.append('pattern')
-            .attr('id', 'invest-outlook-hatch')
+            .attr('id', hatchId)
             .attr('patternUnits', 'userSpaceOnUse')
-            .attr('width', 10)
-            .attr('height', 10);
+            .attr('width', 8)
+            .attr('height', 8);
         hatch.append('path')
-            .attr('d', 'M-2,2 L2,-2 M0,10 L10,0 M8,12 L12,8')
+            .attr('d', 'M-2,2 L2,-2 M0,8 L8,0 M6,10 L10,6')
             .attr('fill', 'none')
-            .attr('stroke-width', 2);
+            .attr('stroke-width', 1.5);
     }
     hatch.select('path').attr('stroke', color);
 
-    let arrow = defs.select('#invest-outlook-arrow');
+    const arrowId = 'invest-outlook-arrow-' + key;
+    let arrow = defs.select('#' + arrowId);
     if (arrow.empty()) {
         arrow = defs.append('marker')
-            .attr('id', 'invest-outlook-arrow')
+            .attr('id', arrowId)
             .attr('viewBox', '0 0 10 10')
             .attr('refX', 8)
             .attr('refY', 5)
-            .attr('markerWidth', 7)
-            .attr('markerHeight', 7)
+            .attr('markerWidth', 6)
+            .attr('markerHeight', 6)
             .attr('orient', 'auto-start-reverse');
         arrow.append('path').attr('d', 'M 0 0 L 10 5 L 0 10 z');
     }
@@ -1154,28 +1191,96 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
     forecastLayer.selectAll("*").remove();
     if (cyclone && cyclone.isInvest && cyclone.status === 'active') {
         const { chance48h, chance7d } = getInvestChancePair(cyclone);
-        const outlookColor = getInvestOutlookColor(chance7d);
-        const developmentArea = createInvestDevelopmentArea(cyclone, pathForecasts, chance7d);
-        if (developmentArea) {
-            ensureInvestMapDefinitions(mapSvg, outlookColor);
+        const color48 = getInvestOutlookColor(chance48h);
+        const color7 = getInvestOutlookColor(chance7d);
+        const outlook = createInvestOutlookGeometry(cyclone, pathForecasts, chance48h, chance7d);
+        if (outlook) {
+            ensureInvestMapDefinitions(mapSvg, color48, '48');
+            ensureInvestMapDefinitions(mapSvg, color7, '7');
+            ensureInvestMapDefinitions(mapSvg, '#f8fafc', 'w');
+
+            // Outer 7-day development corridor (primary region, hatched)
             forecastLayer.append('path')
-                .datum(developmentArea.feature)
-                .attr('class', 'invest-outlook-area')
+                .datum(outlook.feature7)
+                .attr('class', 'invest-outlook-area invest-outlook-7d')
                 .attr('d', pathGenerator)
-                .style('fill', outlookColor)
-                .style('fill-opacity', 0.18)
-                .style('stroke', outlookColor)
-                .style('stroke-width', 2);
+                .style('fill', color7)
+                .style('fill-opacity', 0.14)
+                .style('stroke', color7)
+                .style('stroke-width', 1.5)
+                .style('stroke-opacity', 0.9);
             forecastLayer.append('path')
-                .datum(developmentArea.feature)
-                .attr('class', 'invest-outlook-hatch')
+                .datum(outlook.feature7)
+                .attr('class', 'invest-outlook-hatch invest-outlook-7d')
                 .attr('d', pathGenerator)
-                .style('fill', 'url(#invest-outlook-hatch)')
-                .style('fill-opacity', 0.9)
+                .style('fill', 'url(#invest-outlook-hatch-7)')
+                .style('fill-opacity', 0.5)
                 .style('stroke', 'none');
 
-            const arrowStart = mapProjection(developmentArea.current);
-            const arrowEnd = mapProjection(developmentArea.target);
+            // Nested 48-hour corridor (inner region, dashed border)
+            forecastLayer.append('path')
+                .datum(outlook.feature48)
+                .attr('class', 'invest-outlook-area invest-outlook-48h')
+                .attr('d', pathGenerator)
+                .style('fill', color48)
+                .style('fill-opacity', 0.3)
+                .style('stroke', color48)
+                .style('stroke-width', 1.75)
+                .style('stroke-dasharray', '5, 3');
+            forecastLayer.append('path')
+                .datum(outlook.feature48)
+                .attr('class', 'invest-outlook-hatch invest-outlook-48h')
+                .attr('d', pathGenerator)
+                .style('fill', 'url(#invest-outlook-hatch-48)')
+                .style('fill-opacity', 0.4)
+                .style('stroke', 'none');
+
+            // 48-hour corridor tip marker + chance label
+            const pos48 = mapProjection(outlook.mid48);
+            if (pos48) {
+                forecastLayer.append('circle')
+                    .attr('class', 'invest-outlook-48h-mark')
+                    .attr('cx', pos48[0])
+                    .attr('cy', pos48[1])
+                    .attr('r', 3.5)
+                    .style('fill', '#0f172a')
+                    .style('fill-opacity', 0.85)
+                    .style('stroke', color48)
+                    .style('stroke-width', 1.5);
+                forecastLayer.append('text')
+                    .attr('class', 'invest-outlook-label invest-outlook-48h')
+                    .attr('x', pos48[0] + 9)
+                    .attr('y', pos48[1] - 6)
+                    .style('fill', color48)
+                    .style('font-family', 'monospace')
+                    .style('font-size', '10px')
+                    .style('font-weight', '900')
+                    .style('paint-order', 'stroke')
+                    .style('stroke', '#0f172a')
+                    .style('stroke-width', '3px')
+                    .text(`48-HR • ${chance48h}%`);
+            }
+
+            // 7-day chance label at the far end of the corridor
+            const posEnd = mapProjection(outlook.target);
+            if (posEnd) {
+                forecastLayer.append('text')
+                    .attr('class', 'invest-outlook-label invest-outlook-7d')
+                    .attr('x', posEnd[0] + 6)
+                    .attr('y', posEnd[1] - 8)
+                    .style('fill', color7)
+                    .style('font-family', 'monospace')
+                    .style('font-size', '10px')
+                    .style('font-weight', '900')
+                    .style('paint-order', 'stroke')
+                    .style('stroke', '#0f172a')
+                    .style('stroke-width', '3px')
+                    .text(`7-DAY • ${chance7d}%`);
+            }
+
+            // Subtle motion arrow along the forecast heading
+            const arrowStart = mapProjection(outlook.current);
+            const arrowEnd = mapProjection(outlook.mid48);
             if (arrowStart && arrowEnd) {
                 forecastLayer.append('line')
                     .attr('class', 'invest-motion-arrow')
@@ -1183,26 +1288,12 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
                     .attr('y1', arrowStart[1])
                     .attr('x2', arrowEnd[0])
                     .attr('y2', arrowEnd[1])
-                    .style('stroke', outlookColor)
-                    .style('stroke-width', 3)
+                    .style('stroke', '#f8fafc')
+                    .style('stroke-width', 1.5)
+                    .style('stroke-dasharray', '2, 4')
                     .style('stroke-linecap', 'round')
-                    .attr('marker-end', 'url(#invest-outlook-arrow)');
-            }
-
-            const areaLabelPosition = mapProjection(developmentArea.target);
-            if (areaLabelPosition) {
-                forecastLayer.append('text')
-                    .attr('class', 'invest-outlook-label')
-                    .attr('x', areaLabelPosition[0] + 5)
-                    .attr('y', areaLabelPosition[1] - 5)
-                    .style('fill', outlookColor)
-                    .style('font-family', 'monospace')
-                    .style('font-size', '9px')
-                    .style('font-weight', '900')
-                    .style('paint-order', 'stroke')
-                    .style('stroke', '#0f172a')
-                    .style('stroke-width', '3px')
-                    .text(`7-DAY FORMATION AREA • ${chance7d}%`);
+                    .style('opacity', 0.85)
+                    .attr('marker-end', 'url(#invest-outlook-arrow-w)');
             }
         }
         // Keep the short-range chance visible in the map data even when the
