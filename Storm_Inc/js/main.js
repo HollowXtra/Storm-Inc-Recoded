@@ -14,6 +14,7 @@ import { initializeCyclone, initializePressureSystems, updatePressureSystems, up
 import { generatePathForecasts } from './forecast-models.js';
 // [修改] 引入新的历史强度图绘制函数
 import { drawMap, drawFinalPath, drawHistoricalIntensityChart, drawHumidityField, calculateBackgroundHumidity, calculateTotalHumidity, drawAllHistoryTracks, renderJTWCStyle, renderProbabilitiesStyle, drawStationGraph, renderPhaseSpace, startNewsAnimation, renderStationSynopticChart, initOceanLayer, setCameraZoomFactor, getCameraZoomFactor } from './visualization.js';
+import { initRadarScreen } from './radar-view.js';
 
 // [新增] 镜头缩放动画 (气旋形成时推进放大 / 消亡时拉远)
 // 只负责按时间驱动相机系数; 具体的重绘由调用方通过 onFrame 回调完成
@@ -37,16 +38,77 @@ function startCameraZoomAnim(duration, from, to, onFrame) {
     };
     requestAnimationFrame(step);
 }
+
 import { playClick, playToggleOn, playToggleOff, playStart, playError, playAlert, playUpgradeSound, playCat5Sound, toggleSFX } from './audio.js';
 
 const checkLandWrapper = (lon, lat) => {
     const status = getLandStatus(lon, lat);
     return status.isLand; 
-};
+};document.addEventListener('DOMContentLoaded', () => {
 
-document.addEventListener('DOMContentLoaded', () => {
+    // ===== 全屏雷达 (radar-view.js) =====
+    let radarScreen = null;
+    function getRadarScreen() {
+        if (!radarScreen) {
+            const containerEl = mapContainer && mapContainer.node ? mapContainer.node() : document.getElementById('map-container');
+            if (!containerEl) return null;
+            radarScreen = initRadarScreen(containerEl, () => state.world);
+            if (radarScreen) {
+                radarScreen.setOnExit(() => {
+                    state.radarMode = false;
+                    syncRadarUI();
+                });
+            }
+        }
+        return radarScreen;
+    }
+    function toggleLegendEl(elementId, show) {
+        const el = document.getElementById(elementId);
+        if (!el) return;
+        if (show) {
+            el.classList.remove('hidden');
+            requestAnimationFrame(() => el.setAttribute('data-show', 'true'));
+        } else {
+            el.setAttribute('data-show', 'false');
+            setTimeout(() => el.classList.add('hidden'), 300);
+        }
+    }
+    // 雷达聚焦对象: 有气旋则返回气旋(含已消散, 用于回放其消亡位置);
+    // 无气旋但有观测站则返回 null (以站点为中心); 两者皆无返回 false
+    function radarFocusTarget() {
+        const c = state.cyclone;
+        if (c && c.lon != null && c.lat != null && isFinite(c.lon) && isFinite(c.lat)) return c;
+        if (state.siteLon != null && state.siteLat != null && isFinite(state.siteLon) && isFinite(state.siteLat)) return null;
+        return false;
+    }
+    function syncRadarUI() {
+        toggleLegendEl('radar-legend', state.radarMode);
+        toggleLegendEl('doppler-legend', state.dopplerMode);
+        if (!state.radarMode && !state.dopplerMode) {
+            if (radarScreen) radarScreen.hide();
+            if (typeof requestRedraw === 'function') requestRedraw();
+            return;
+        }
+        // 切到多普勒等非全屏雷达模式时, 确保全屏画面隐藏
+        if (!state.radarMode) {
+            if (radarScreen) radarScreen.hide();
+        } else {
+            const screen = getRadarScreen();
+            if (!screen) { state.radarMode = false; toggleLegendEl('radar-legend', false); return; }
+            if (radarFocusTarget() === false) {
+                // 没有气旋也没有站点, 无处聚焦 -> 退出雷达
+                state.radarMode = false;
+                toggleLegendEl('radar-legend', false);
+                screen.hide();
+                if (typeof requestRedraw === 'function') requestRedraw();
+                return;
+            }
+            screen.show();
+        }
+        if (typeof requestRedraw === 'function') requestRedraw();
+    }
 
-    // --- DOM 元素与全局状态 ---
+    // --- DOM 元素与全局状态 ---
     const generateButton = document.getElementById('generateButton');
     const pauseButton = document.getElementById('pauseButton');
     const catButton = document.getElementById('catButton');
@@ -222,6 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     radarOverlayCtx.clearRect(0, 0, radarOverlayCanvas.width, radarOverlayCanvas.height);
                 }
             }
+            if (radarScreen && radarScreen.isVisible()) radarScreen.hide();
         }
         stats.end();
         requestAnimationFrame(animate);
@@ -490,6 +553,10 @@ world: null,
             if (dopplerRenderer) {
                 dopplerRenderer.loadTerrainTexture(img);
                 console.log("Doppler Terrain Texture Loaded.");
+            }
+            const fullRadar = getRadarScreen();
+            if (fullRadar) {
+                fullRadar.loadTerrainTexture(img);
             }
         };
 
@@ -811,12 +878,43 @@ world: null,
 
     function drawRadarScope() {
         // 1. 基础检查
-        if ((!state.radarMode && !state.dopplerMode) || !state.siteLon || !state.siteLat) {
+        if (!state.radarMode && !state.dopplerMode) {
+            if (radarCanvas) radarCanvas.classList.add('hidden');
+            if (radarOverlayCanvas) radarOverlayCanvas.classList.add('hidden');
+            if (radarScreen) radarScreen.hide();
+            return;
+        }
+        if (!radarRenderer || !dopplerRenderer) return;
+
+        // ============================================
+        // A. 全屏雷达 (R): WebGL 着色器回波 + 地理底图 + 真实城市/雷达站点, 跟随气旋
+        // ============================================
+        if (state.radarMode) {
+            // 隐藏旧的小范围贴纸画布
+            if (radarCanvas) radarCanvas.classList.add('hidden');
+            if (radarOverlayCanvas) radarOverlayCanvas.classList.add('hidden');
+
+            const screen = getRadarScreen();
+            const focus = radarFocusTarget();
+            if (!screen || focus === false) {
+                // 没有气旋也没有观测站, 无处聚焦 -> 退出雷达
+                state.radarMode = false;
+                syncRadarUI();
+                return;
+            }
+            screen.show();
+            screen.frame(state, focus); // focus: 气旋对象 或 null (以站点为中心)
+            return;
+        }
+
+        // ============================================
+        // B. 多普勒 (D): 保留原有的站点贴纸扫描范围
+        // ============================================
+        if (!state.siteLon || !state.siteLat) {
             if (radarCanvas) radarCanvas.classList.add('hidden');
             if (radarOverlayCanvas) radarOverlayCanvas.classList.add('hidden');
             return;
         }
-        if (!radarRenderer || !dopplerRenderer) return;
         radarCanvas.classList.remove('hidden');
         radarOverlayCanvas.classList.remove('hidden');
 
@@ -848,23 +946,10 @@ world: null,
         radarCanvas.style.left = `${cx - radiusPx}px`;
         radarCanvas.style.top = `${cy - radiusPx}px`;
         const activeCyclone = (state.cyclone && state.cyclone.status === 'active') ? state.cyclone : null;
-        if (state.dopplerMode) {
+        {
             // 多普勒模式：渲染径向速度
             dopplerRenderer.render(state, 256, 256);
             radarCanvas.style.opacity = "0.75"; // 多普勒模式稍微不透明一点，以便看清颜色
-        } else if (state.radarMode) {
-            // 基本反射率模式
-            const rawHum = calculateBackgroundHumidity(
-                state.siteLon, 
-                state.siteLat, 
-                state.pressureSystems, 
-                state.currentMonth, 
-                activeCyclone, 
-                state.GlobalTemp
-            );
-            const normalizedHum = rawHum / 100.0;
-            radarRenderer.render(state, 256, 256, normalizedHum);
-            radarCanvas.style.opacity = "0.65";
         }
 
         // ============================
@@ -3802,29 +3887,8 @@ contentArea.innerHTML = `
             generateButton.click();
         }
 
-        const toggleLegend = (elementId, show) => {
-            const el = document.getElementById(elementId);
-            if (!el) return;
-            
-            if (show) {
-                el.classList.remove('hidden');
-                // 使用 requestAnimationFrame 确保 remove hidden 后 transition 生效
-                requestAnimationFrame(() => el.setAttribute('data-show', 'true'));
-            } else {
-                el.setAttribute('data-show', 'false');
-                setTimeout(() => el.classList.add('hidden'), 300);
-            }
-        };
 
-        // [优化] 统一更新 UI 状态 (状态改变后调用一次即可)
-        const updateRadarUI = () => {
-            toggleLegend('radar-legend', state.radarMode);
-            toggleLegend('doppler-legend', state.dopplerMode);
-            requestRedraw();
-            console.log(`[Mode] Radar: ${state.radarMode}, Doppler: ${state.dopplerMode}`);
-        };
-
-        // 'R' 键：切换雷达 (如果多普勒开启，则强切回雷达)
+        // 'R' 键：切换全屏雷达 (如果多普勒开启，则强切回雷达)
         if (event.code === 'KeyR') {
             if (state.dopplerMode) {
                 state.dopplerMode = false;
@@ -3832,7 +3896,8 @@ contentArea.innerHTML = `
             } else {
                 state.radarMode = !state.radarMode;
             }
-            updateRadarUI();
+            syncRadarUI();
+            console.log(`[Mode] Radar: ${state.radarMode}, Doppler: ${state.dopplerMode}`);
         }
 
         // 'D' 键：切换多普勒 (如果雷达开启，则强切回多普勒)
@@ -3843,8 +3908,15 @@ contentArea.innerHTML = `
             } else {
                 state.dopplerMode = !state.dopplerMode;
             }
-            updateRadarUI();
+            syncRadarUI();
+            console.log(`[Mode] Radar: ${state.radarMode}, Doppler: ${state.dopplerMode}`);
         }
+        // 'Esc': 退出全屏雷达
+        if (event.code === 'Escape' && state.radarMode) {
+            state.radarMode = false;
+            syncRadarUI();
+        }
+
         // 1, 2, 3: 切换模拟速度 (如果你之前添加了这部分代码，请保留)
         if (event.key === '1') changeSimulationSpeed(50);
         if (event.key === '2') changeSimulationSpeed(200);
