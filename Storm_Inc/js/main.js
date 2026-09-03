@@ -528,6 +528,11 @@ world: null,
         img.crossOrigin = "Anonymous";
         img.src = './js/elevation_1080x540.png';
         
+        img.onerror = (e) => {
+            console.error("地形高程图加载失败:", e);
+            alert("地形数据加载失败，模拟功能不可用。请检查网络后刷新页面。");
+        };
+
         img.onload = () => {
             // A. JS 逻辑用的地形数据 (异步)
             initTerrainSystem(img.src, state.world).then(() => {
@@ -536,6 +541,9 @@ world: null,
                 const mapContainerEl = document.getElementById('map-container');
                 if (mapContainerEl) mapContainerEl.classList.add('has-terrain');
                 generateButton.disabled = false;
+            }).catch(err => {
+                console.error("地形系统初始化失败:", err);
+                alert("地形数据初始化失败，模拟功能不可用。请刷新页面重试。");
             });
             
             // B. WebGL 渲染用的地形纹理 (同步上传)
@@ -567,6 +575,10 @@ world: null,
             showPathPoints: state.showPathPoints,
             showWindField: state.showWindField
         });
+    }).catch(err => {
+        // 地图数据加载失败会导致整个初始化流程静默中断，必须显式反馈
+        console.error("地图数据 (world-f.json) 加载失败:", err);
+        alert("地图数据加载失败，页面无法正常初始化。请检查网络后刷新重试。");
     });
     // 封装折叠/展开函数
     function toggleLeftPanel() {

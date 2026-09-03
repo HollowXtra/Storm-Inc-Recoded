@@ -30,7 +30,19 @@ export default {
         
         // 先把结果作为纯文本拿下来，不要急着 .json()
         const rawText = await targetResponse.text();
-        
+
+        // 上游返回非 2xx 时，不要把错误响应当成正常数据静默返回，需向调用方透传失败
+        if (!targetResponse.ok) {
+            return new Response(JSON.stringify({
+                error: "上游气象接口返回错误状态",
+                upstreamStatus: targetResponse.status,
+                raw_response: rawText.substring(0, 200) + "..."
+            }), {
+                status: 502,
+                headers: { ...corsHeaders, "Content-Type": "application/json;charset=UTF-8" }
+            });
+        }
+
         try {
             // 尝试将纯文本解析为 JSON
             const resJson = JSON.parse(rawText);

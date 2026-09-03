@@ -150,9 +150,12 @@ def try_scrape_once():
 
                     try:
                         data[clean_name] = float(val_ms)
-                    except:
+                    except (ValueError, TypeError):
+                        print(f"⚠️ 站点 {clean_name} 数值解析失败（OCR 结果: {val_ms!r}），记为 0.0")
                         data[clean_name] = 0.0
-            except:
+            except Exception as e:
+                # 单行解析失败不应中断整轮抓取，但需要记录以便排查（避免静默吞掉错误）
+                print(f"⚠️ 跳过一行数据，解析出错: {e}")
                 continue
 
         # 校验点 2：有效匹配街道数太少，说明数据没解析全
