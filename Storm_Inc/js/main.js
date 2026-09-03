@@ -13,7 +13,30 @@ import { initTerrainSystem, getElevationAt, getLandStatus } from './terrain-data
 import { initializeCyclone, initializePressureSystems, updatePressureSystems, updateFrontalZone, updateCycloneState, getWindVectorAt } from './cyclone-model.js';
 import { generatePathForecasts } from './forecast-models.js';
 // [修改] 引入新的历史强度图绘制函数
-import { drawMap, drawFinalPath, drawHistoricalIntensityChart, drawHumidityField, calculateBackgroundHumidity, calculateTotalHumidity, drawAllHistoryTracks, renderJTWCStyle, renderProbabilitiesStyle, drawStationGraph, renderPhaseSpace, startNewsAnimation, renderStationSynopticChart, initOceanLayer } from './visualization.js';
+import { drawMap, drawFinalPath, drawHistoricalIntensityChart, drawHumidityField, calculateBackgroundHumidity, calculateTotalHumidity, drawAllHistoryTracks, renderJTWCStyle, renderProbabilitiesStyle, drawStationGraph, renderPhaseSpace, startNewsAnimation, renderStationSynopticChart, initOceanLayer, setCameraZoomFactor, getCameraZoomFactor } from './visualization.js';
+
+// [新增] 镜头缩放动画 (气旋形成时推进放大 / 消亡时拉远)
+// 只负责按时间驱动相机系数; 具体的重绘由调用方通过 onFrame 回调完成
+let cameraAnimToken = null;
+function cancelCameraAnim() { cameraAnimToken = null; }
+function startCameraZoomAnim(duration, from, to, onFrame) {
+    cancelCameraAnim();
+    const token = {};
+    cameraAnimToken = token;
+    const t0 = performance.now();
+    const zoomingIn = to > from;
+    // 推进用 easeOutCubic (快速接近后稳稳停住); 拉远用 easeInOutCubic
+    const ease = (k) => zoomingIn
+        ? 1 - Math.pow(1 - k, 3)
+        : (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
+    const step = (now) => {
+        if (cameraAnimToken !== token) return; // 已被新动画 / 新模拟取消
+        const k = Math.min(1, (now - t0) / duration);
+        onFrame(from + (to - from) * ease(k));
+        if (k < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+}
 import { playClick, playToggleOn, playToggleOff, playStart, playError, playAlert, playUpgradeSound, playCat5Sound, toggleSFX } from './audio.js';
 
 const checkLandWrapper = (lon, lat) => {
@@ -173,6 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // 由于 info-panel 隐藏了，原本的 'status' 元素也看不见了。
     
                 // 4. 调用批量绘图
+                cancelCameraAnim(); // 停止任何进行中的镜头缩放动画
                 drawAllHistoryTracks(mapSvg, mapProjection, state.history, state.world);
             });
 
@@ -1740,6 +1764,12 @@ function updateInfoPanel() {
                 console.error("无法保存历史记录:", e);
             }
             updateWarningPanel();
+            // [新增] 气旋“消亡”镜头: 从跟随视野缓缓拉远, 完整呈现最终路径
+            const startF = getCameraZoomFactor();
+            startCameraZoomAnim(2200, startF, 0.55, (f) => {
+                setCameraZoomFactor(f);
+                requestRedraw();
+            });
             return;
         }        // [修改] 传递 GlobalTemp 到模型
         const wasNamed = state.cyclone.named;
@@ -1970,6 +2000,12 @@ if (yearSelector) yearSelector.disabled = true;
         state.cyclone.isInvest = true;
         state.cyclone.investStatus = 'investigating';
         state.cyclone.track.push([state.cyclone.lon, state.cyclone.lat, state.cyclone.intensity, false, false, state.cyclone.circulationSize, state.cyclone.isSubtropical, 0, 0, 0, undefined, true]);
+        // [新增] 新系统“形成”镜头: 从广角视野向风暴推进放大 (随后的逐帧 requestRedraw 保持跟随)
+        setCameraZoomFactor(0.4);
+        startCameraZoomAnim(1400, 0.4, 1, (f) => {
+            setCameraZoomFactor(f);
+            requestRedraw();
+        });
         state.pressureSystems = initializePressureSystems(state.cyclone, state.currentMonth, state.GlobalTemp, state.GlobalShear);
         state.frontalZone = updateFrontalZone(state.pressureSystems, state.currentMonth, state.GlobalTemp, state.GlobalShear);
         
@@ -2254,6 +2290,7 @@ if (yearSelector) yearSelector.disabled = true;
             document.getElementById('simulation-output').classList.remove('hidden');
             bestTrackContainer.classList.add('hidden');
             
+            cancelCameraAnim(); // 切换历史视角, 停止进行中的镜头动画
             drawFinalPath(mapSvg, mapProjection, selectedCyclone, state.world, tooltip, null, null, null, state.showPathPoints, null, basinSelector.value);
             if (state.showIntensityChart) {
                 forecastContainer.classList.remove('hidden');

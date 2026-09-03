@@ -1019,6 +1019,11 @@ function ensureInvestMapDefinitions(mapSvg, color) {
     arrow.select('path').attr('fill', color);
 }
 
+// 相机缩放动画系数 (气旋形成/消亡时由 main.js 逐帧驱动; 1 = 标准跟随视野, <1 = 更广的视野)
+let cameraZoomFactor = 1;
+export function setCameraZoomFactor(f) { cameraZoomFactor = f; }
+export function getCameraZoomFactor() { return cameraZoomFactor; }
+
 export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
     if (!world || !mapSvg) return;
 
@@ -1083,7 +1088,7 @@ export function drawMap(mapSvg, mapProjection, world, cyclone, options = {}) {
     if (cyclone && cyclone.status === 'active' && isFinite(cyclone.lon)) {
         // [修复] 重置历史/结束视图遗留的旋转与缩放, 确保活动模拟使用标准视野
         mapProjection.rotate([0, 0])
-            .scale(height / (20 * Math.PI / 180))
+            .scale((height / (20 * Math.PI / 180)) * cameraZoomFactor)
             .center([cyclone.lon, cyclone.lat])
             .translate([width / 2, height / 2]);
     }
@@ -1544,7 +1549,7 @@ function centerProjectionOnFinalPoint(mapProjection, finalLon, finalLat, width, 
     const RAD = Math.PI / 180;
     const normLon = ((finalLon + 180) % 360 + 360) % 360 - 180;
     mapProjection.rotate([0, 0])
-        .scale(height / (20 * RAD))
+        .scale((height / (20 * RAD)) * cameraZoomFactor)
         .center([normLon, finalLat])
         .translate([width / 2, height / 2]);
 }export function drawFinalPath(mapSvg, mapProjection, cyclone, world, tooltip, siteName, siteLon, siteLat, showPathPoints = false, finalStats = null, basin = 'WPAC', pressureSystems = [], showWindField = false, month = 8, siteHistory = [], siteData = null, onSiteClick = null, centerOnFinal = false) {
