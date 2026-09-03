@@ -43,7 +43,7 @@ export function generatePathForecasts(cyclone, pressureSystems, checkLandFunc = 
         for(let t = 1; t <= TOTAL_STEPS; t++) { 
             // 1. 路径计算 (3小时/步)
             updatePressureSystems(tempPressureSystems, cyclone.currentMonth);
-            const { steerU, steerV, shearU, shearV } = calculateSteering(tempCyclone.lon, tempCyclone.lat, tempPressureSystems, model.bias);
+            const { steerU, steerV, shearU, shearV } = calculateSteering(tempCyclone.lon, tempCyclone.lat, tempPressureSystems, model.bias, tempCyclone.intensity);
             
             let steeringDirection = (Math.atan2(steerU, steerV) * 180 / Math.PI + 360) % 360;
             let angleDiff = steeringDirection - tempCyclone.direction;
