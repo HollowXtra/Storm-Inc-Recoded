@@ -16,6 +16,7 @@ import { generatePathForecasts } from './forecast-models.js';
 import { drawMap, drawFinalPath, drawHistoricalIntensityChart, drawHumidityField, calculateBackgroundHumidity, calculateTotalHumidity, drawAllHistoryTracks, renderJTWCStyle, renderProbabilitiesStyle, drawStationGraph, renderPhaseSpace, startNewsAnimation, renderStationSynopticChart, initOceanLayer, setCameraZoomFactor, getCameraZoomFactor } from './visualization.js';
 import { initRadarScreen } from './radar-view.js';
 import { createStormFxState, resetStormFxState, accumulateStormRainfall, advanceFxWall, replanReconMission, startReconMission, canLaunchRecon, renderStormFx, hasFxContent } from './storm-fx.js';
+import { createAutoSeason, formatSeasonDate, formatSeasonRange } from './season-mode.js';
 
 // [新增] 镜头缩放动画 (气旋形成时推进放大 / 消亡时拉远)
 // 只负责按时间驱动相机系数; 具体的重绘由调用方通过 onFrame 回调完成
@@ -326,6 +327,10 @@ world: null,
         investSequence: 0,
         lastBasin: null,
         lastSeasonYear: null,
+        autoSeason: null,
+        autoSeasonEnabled: false,
+        autoSeasonTimer: null,
+        stormStartDay: 1,
         selectedHistoryTrackData: '',
         lastFinalStats: null,
         currentSiteData: null,
@@ -420,7 +425,8 @@ world: null,
         // setUTCFullYear preserves years 1–99; Date.UTC would reinterpret them as 1901–1999.
         const date = new Date(0);
         date.setUTCHours(0, 0, 0, 0);
-        date.setUTCFullYear(getStormSeasonYear(cyclone), month - 1, 1);
+        const startDay = (cyclone && cyclone.startDay) || state.stormStartDay || 1;
+        date.setUTCFullYear(getStormSeasonYear(cyclone), month - 1, startDay);
         date.setUTCHours(age);
         return date;
     }
@@ -652,7 +658,7 @@ world: null,
         // C. 计算日期范围 (MM/DD)
         const currentYear = getStormSeasonYear();
         // 模拟开始日期 (当月1号)
-        const startDate = new Date(Date.UTC(currentYear, state.currentMonth - 1, 1));
+        const startDate = new Date(Date.UTC(currentYear, state.currentMonth - 1, state.stormStartDay || 1));
         
         // 模拟结束日期 = 开始日期 + 气旋总寿命(小时)
         const totalHours = state.cyclone.age || 0;
@@ -841,7 +847,7 @@ world: null,
         const cycloneNum = String(simulationCount).padStart(2, '0');
         const startDate = new Date(0);
         startDate.setUTCHours(0, 0, 0, 0);
-        startDate.setUTCFullYear(cycloneInfo.year, cycloneInfo.month - 1, 1);
+        startDate.setUTCFullYear(cycloneInfo.year, cycloneInfo.month - 1, cycloneInfo.startDay || 1);
 
         return track.map((point, index) => {
             const currentDate = new Date(startDate);
@@ -1233,7 +1239,7 @@ function updateWarningPanel() {
 
         // 1. 计算时间字符串
         const currentYear = getStormSeasonYear();
-        const startDate = new Date(Date.UTC(currentYear, currentMonth - 1, 1));
+        const startDate = new Date(Date.UTC(currentYear, currentMonth - 1, state.stormStartDay || 1));
         const currentDate = new Date(startDate.getTime() + currentAge * 3600 * 1000);
         
         const m = String(currentDate.getUTCMonth() + 1).padStart(2, '0');
@@ -1550,7 +1556,7 @@ function updateInfoPanel() {
         if (seasonBadge) {
             seasonBadge.textContent = state.cyclone.isInvest
                 ? `${state.cyclone.investDesignation || 'INVEST'} • INVESTIGATION • ${getStormSeasonYear(state.cyclone)} SEASON • ${state.cyclone.basin || basin}`
-                : `${getStormSeasonYear(state.cyclone)} SEASON • ${state.cyclone.nameLetter || '—'} LIST • ${state.cyclone.basin || basin}`;
+                : `${getStormSeasonYear(state.cyclone)} SEASON • ${state.cyclone.basin || basin}${state.cyclone.nameLetter ? ' • ' + state.cyclone.nameLetter + ' LIST' : ''}`;
         }
 
         if (state.cyclone && state.pressureSystems) {
@@ -1917,7 +1923,8 @@ function updateInfoPanel() {
                 month: state.currentMonth,
                 year: state.seasonYear,
                 isInvest: state.cyclone.isInvest,
-                investNumber: state.cyclone.investNumber
+                investNumber: state.cyclone.investNumber,
+                startDay: state.cyclone.startDay || state.stormStartDay || 1
             };
             
             // 生成最佳路径文本
@@ -1978,7 +1985,7 @@ function updateInfoPanel() {
             const finalSeasonBadge = document.getElementById('season-badge');
             if (finalSeasonBadge) finalSeasonBadge.textContent = state.cyclone.isInvest
                 ? `${state.cyclone.investDesignation || 'INVEST'} • INVESTIGATION • ${getStormSeasonYear(state.cyclone)} SEASON • ${basinId}`
-                : `${getStormSeasonYear(state.cyclone)} SEASON • ${state.cyclone.nameLetter || '—'} LIST • ${basinId}`;
+                : `${getStormSeasonYear(state.cyclone)} SEASON • ${basinId}${state.cyclone.nameLetter ? ' • ' + state.cyclone.nameLetter + ' LIST' : ''}`;
             document.getElementById('map-info-box').classList.add('hidden');
             
             // 重置按钮状态
@@ -2061,6 +2068,10 @@ function updateInfoPanel() {
                 console.error("无法保存历史记录:", e);
             }
             updateWarningPanel();
+            // [自动季节模式] 系统结束: 记录并安排季节中的下一个系统
+            if (state.autoSeason && state.autoSeason.status === 'running') {
+                onAutoSeasonStormEnded(finalStats);
+            }
             // [新增] 气旋“消亡”镜头: 从跟随视野缓缓拉远, 完整呈现最终路径
             const startF = getCameraZoomFactor();
             startCameraZoomAnim(2200, startF, 0.55, (f) => {
@@ -2316,6 +2327,7 @@ if (yearSelector) yearSelector.disabled = true;
         const investIdentifier = getInvestIdentifier(selectedBasin, state.investSequence);
         state.investSequence = (state.investSequence + 1) % 10;
         state.cyclone = initializeCyclone(state.world, state.currentMonth, selectedBasin, state.GlobalTemp, state.GlobalShear, state.customLon, state.customLat, state.seasonYear);
+        state.cyclone.startDay = state.stormStartDay || 1;
         state.cyclone.investNumber = investIdentifier.number;
         state.cyclone.investBasinCode = investIdentifier.basinCode;
         state.cyclone.investDesignation = investIdentifier.designation;
@@ -2530,7 +2542,253 @@ if (yearSelector) yearSelector.disabled = true;
     initMusicPlaylist();
 
     // --- 事件监听器 ---
-    generateButton.addEventListener('click', startSimulation);
+        // ===== 全自动季节模式 (Automated full-season mode) =====
+    // Plays a basin's whole natural season: systems spawn on monthly
+    // climatological dates (see season-mode.js), each runs its full life and is
+    // recorded, and the run ends with an ICWC-style season report.
+    const SEASON_INTERMISSION_MS = 2600;
+    const AUTO_SEASON_CLASS = 'auto-season-on';
+
+    function getEnglishCatLabel(knots) {
+        const k = Math.round(knots || 0);
+        if (k >= 137) return 'CAT-5';
+        if (k >= 113) return 'CAT-4';
+        if (k >= 96) return 'CAT-3';
+        if (k >= 83) return 'CAT-2';
+        if (k >= 64) return 'CAT-1';
+        if (k >= 34) return 'TS';
+        return 'INVEST';
+    }
+
+    function setFullSeasonButtonVisual(active) {
+        const btn = document.getElementById('fullSeasonButton');
+        if (!btn) return;
+        if (active) {
+            btn.classList.remove('bg-slate-900', 'border-slate-600', 'text-slate-300');
+            btn.classList.add('bg-cyan-500/20', 'border-cyan-400', 'text-cyan-300');
+        } else {
+            btn.classList.remove('bg-cyan-500/20', 'border-cyan-400', 'text-cyan-300');
+            btn.classList.add('bg-slate-900', 'border-slate-600', 'text-slate-300');
+        }
+    }
+
+    function toggleAutoSeason() {
+        state.autoSeasonEnabled = !state.autoSeasonEnabled;
+        setFullSeasonButtonVisual(state.autoSeasonEnabled);
+        playClick();
+        if (!state.autoSeasonEnabled) cancelAutoSeason();
+    }
+
+    function cancelAutoSeason() {
+        if (state.autoSeasonTimer) { clearTimeout(state.autoSeasonTimer); state.autoSeasonTimer = null; }
+        const wasRunning = state.autoSeason && state.autoSeason.status === 'running';
+        state.autoSeason = null;
+        hideSeasonStrip();
+        if (wasRunning) {
+            const statusEl = document.getElementById('status');
+            if (statusEl && (!state.cyclone || state.cyclone.status !== 'active')) {
+                statusEl.textContent = 'SEASON MODE STOPPED — MANUAL MODE';
+            }
+        }
+    }
+
+    function getSeasonStripEl() {
+        let el = document.getElementById('season-strip');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'season-strip';
+            el.className = 'fixed bottom-3 left-3 z-[90] bg-black/85 backdrop-blur border border-cyan-500/40 text-cyan-100 text-[10px] font-mono tracking-wider px-3 py-2 rounded-lg shadow-2xl pointer-events-none flex items-center gap-2 whitespace-nowrap';
+            el.innerHTML = '<i class="fa-solid fa-calendar-days text-cyan-400"></i><span id="season-strip-text"></span>';
+            document.body.appendChild(el);
+        }
+        return el;
+    }
+
+    function hideSeasonStrip() {
+        const el = document.getElementById('season-strip');
+        if (el) el.classList.add('hidden');
+    }
+
+    function updateSeasonStrip(message) {
+        const el = getSeasonStripEl();
+        el.classList.remove('hidden');
+        const text = el.querySelector('#season-strip-text');
+        if (text && message) text.textContent = message;
+    }
+
+    function startAutoSeason() {
+        const basin = basinSelector ? basinSelector.value : 'NATL';
+        const enteredYear = yearSelector ? parseInt(yearSelector.value, 10) : NaN;
+        const year = Number.isFinite(enteredYear) && enteredYear >= 1 ? enteredYear : new Date().getFullYear();
+        const plan = createAutoSeason(basin, year);
+        state.autoSeason = {
+            plan,
+            status: 'running',
+            index: 0,
+            current: null,
+            systems: 0,
+            named: 0,
+            hurricanes: 0,
+            majors: 0,
+            aceTotal: 0,
+            deaths: 0,
+            damage: 0,
+            names: [],
+            records: [],
+            peak: null
+        };
+        // 新季节开始: 命名序列与 INVEST 编号从零开始
+        state.nextNameIndex = 0;
+        state.investSequence = 0;
+        if (state.autoSeasonTimer) { clearTimeout(state.autoSeasonTimer); state.autoSeasonTimer = null; }
+        spawnNextAutoSeasonSystem();
+    }
+
+    function spawnNextAutoSeasonSystem() {
+        const s = state.autoSeason;
+        if (!s || s.status !== 'running') return;
+        const next = s.plan.schedule[s.index];
+        if (!next) { finishAutoSeason(); return; }
+        s.index += 1;
+        s.current = next;
+        state.stormStartDay = next.day;
+        state.currentMonth = next.month;
+        if (monthSelector) monthSelector.value = String(next.month);
+        if (basinSelector) basinSelector.value = s.plan.basin;
+        if (yearSelector) yearSelector.value = String(s.plan.year);
+        // 保持命名序列跨系统连续 (防止 startSimulation 因切换 basin/年份而重置)
+        state.lastBasin = s.plan.basin;
+        state.lastSeasonYear = s.plan.year;
+        const dateLabel = formatSeasonDate(next, s.plan.year);
+        updateSeasonStrip(`FULL SEASON ${s.plan.year} • ${s.plan.basin} • ${dateLabel} • SYSTEM ${s.systems + 1}/${s.plan.schedule.length} • CLIMATOLOGY ${s.plan.expectedTotal.toFixed(1)}`);
+        startSimulation();
+    }
+
+    function onAutoSeasonStormEnded(finalStats) {
+        const s = state.autoSeason;
+        if (!s || s.status !== 'running') return;
+        const c = state.cyclone;
+        if (!c) return;
+        s.systems += 1;
+        const dateLabel = s.current ? formatSeasonDate(s.current, s.plan.year) : '';
+        const peakKt = Math.round(finalStats && finalStats.peakWind ? finalStats.peakWind : (c.peakIntensity || c.intensity || 0));
+        const minMb = Math.round(finalStats && finalStats.minPressure ? finalStats.minPressure : 0);
+        const ace = Number(finalStats && finalStats.ace ? finalStats.ace : (c.ace || 0));
+        s.aceTotal += Number.isFinite(ace) ? ace : 0;
+        let nameLabel = (c.named && c.name) ? c.name.toUpperCase() : 'INVEST';
+        if (c.named) {
+            s.named += 1;
+            s.names.push(c.name);
+        }
+        if (peakKt >= 64) s.hurricanes += 1;
+        if (peakKt >= 96) s.majors += 1;
+        if (finalStats) {
+            s.deaths += finalStats.deaths || 0;
+            s.damage += finalStats.damage || 0;
+        }
+        const cat = getEnglishCatLabel(peakKt);
+        s.records.push({
+            date: dateLabel,
+            name: nameLabel,
+            cat,
+            peakKt,
+            mb: minMb,
+            ace: Number.isFinite(ace) ? ace.toFixed(2) : '0.00',
+            named: Boolean(c.named)
+        });
+        if (!s.peak || peakKt > s.peak.peakKt) {
+            s.peak = { name: nameLabel, cat, peakKt, mb: minMb, date: dateLabel };
+        }
+        const remaining = Math.max(0, s.plan.schedule.length - s.index);
+        updateSeasonStrip(`FULL SEASON ${s.plan.year} • ${s.plan.basin} • ${nameLabel} ${cat} ${peakKt}KT ENDED • NAMED ${s.named} • ${remaining} SYSTEMS REMAIN`);
+        state.autoSeasonTimer = setTimeout(() => {
+            if (state.autoSeason && state.autoSeason.status === 'running') {
+                if (s.index < s.plan.schedule.length) spawnNextAutoSeasonSystem();
+                else finishAutoSeason();
+            }
+        }, SEASON_INTERMISSION_MS);
+    }
+
+    function renderSeasonReport(s) {
+        const overlay = document.createElement('div');
+        overlay.id = 'season-report';
+        overlay.className = 'fixed inset-0 z-[120] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4';
+        const rows = s.records.map((r, i) => `
+            <div class="flex items-center justify-between gap-4 border-b border-white/5 py-1">
+                <span class="text-slate-400">${String(i + 1).padStart(2, '0')} • ${r.date}</span>
+                <span class="font-bold ${r.named ? 'text-white' : 'text-slate-400'}">${r.name}${r.named && r.cat !== 'TS' ? ` <span class="text-amber-300 text-[9px]">${r.cat}</span>` : ''}</span>
+                <span class="text-cyan-300">${r.peakKt} KT</span>
+                <span class="text-slate-400">${r.mb ? r.mb + ' MB' : '—'}</span>
+                <span class="text-slate-500">ACE ${r.ace}</span>
+            </div>`).join('');
+        const peakLine = s.peak
+            ? `SEASON PEAK: ${s.peak.name} ${s.peak.cat} — ${s.peak.peakKt} KT / ${s.peak.mb} MB (${s.peak.date})`
+            : 'SEASON PEAK: no systems reached named-storm strength';
+        overlay.innerHTML = `
+            <div class="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl border border-cyan-500/30 bg-slate-950 shadow-2xl shadow-cyan-900/20">
+                <div class="p-5 border-b border-white/10 flex items-start justify-between">
+                    <div>
+                        <div class="text-[9px] text-cyan-400 font-mono tracking-[0.25em]">ICWC • SEASON POST-ANALYSIS</div>
+                        <h2 class="text-2xl font-black text-white mt-1">${s.plan.basin} ${s.plan.year} FULL SEASON REPORT</h2>
+                        <div class="text-[10px] text-slate-400 mt-1 font-mono">${formatSeasonRange(s.plan.months, s.plan.year)} • ${s.plan.schedule.length} SYSTEMS SCHEDULED • ${s.plan.expectedTotal.toFixed(1)} CLIMATOLOGICAL</div>
+                    </div>
+                    <button id="season-report-close" class="text-slate-400 hover:text-white text-xl px-2 cursor-pointer">&times;</button>
+                </div>
+                <div class="p-5 space-y-4">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-center">
+                        <div class="bg-white/5 rounded-lg p-3"><div class="text-[9px] text-slate-400 font-mono">SYSTEMS</div><div class="text-xl font-black text-white">${s.systems}</div></div>
+                        <div class="bg-white/5 rounded-lg p-3"><div class="text-[9px] text-slate-400 font-mono">NAMED</div><div class="text-xl font-black text-cyan-300">${s.named}</div></div>
+                        <div class="bg-white/5 rounded-lg p-3"><div class="text-[9px] text-slate-400 font-mono">HURRICANES</div><div class="text-xl font-black text-amber-300">${s.hurricanes}</div></div>
+                        <div class="bg-white/5 rounded-lg p-3"><div class="text-[9px] text-slate-400 font-mono">MAJOR (3+)</div><div class="text-xl font-black text-red-400">${s.majors}</div></div>
+                    </div>
+                    <div class="flex flex-wrap gap-x-6 gap-y-1 text-[11px] text-slate-300 font-mono">
+                        <span>ACE TOTAL: <b class="text-white">${s.aceTotal.toFixed(1)}</b></span>
+                        <span>DEATHS: <b class="text-red-300">${s.deaths}</b></span>
+                        <span>DAMAGE: <b class="text-white">${formatDamageM(s.damage)}</b></span>
+                    </div>
+                    <div class="border border-violet-500/30 bg-violet-500/5 rounded-lg p-3 text-[10px] font-mono text-violet-200">${peakLine}</div>
+                    ${s.names.length
+                        ? `<div class="text-[11px] text-slate-300">NAMES USED: <span class="font-mono text-cyan-200">${s.names.map(n => String(n).toUpperCase()).join(' • ')}</span></div>`
+                        : '<div class="text-[11px] text-slate-400 italic">A quiet season — no systems reached named-storm strength.</div>'}
+                    <div>
+                        <div class="text-[9px] text-slate-400 font-mono mb-1">SYSTEM LOG</div>
+                        ${rows || '<div class="text-slate-500 text-xs">No systems.</div>'}
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+        const closeBtn = document.getElementById('season-report-close');
+        if (closeBtn) closeBtn.addEventListener('click', () => overlay.remove());
+        const statusEl = document.getElementById('status');
+        if (statusEl) statusEl.textContent = `FULL SEASON COMPLETE — ${s.named} NAMED / ACE ${s.aceTotal.toFixed(1)}`;
+    }
+
+    function finishAutoSeason() {
+        const s = state.autoSeason;
+        if (!s) return;
+        if (state.autoSeasonTimer) { clearTimeout(state.autoSeasonTimer); state.autoSeasonTimer = null; }
+        const snapshot = s;
+        state.autoSeason = null;
+        hideSeasonStrip();
+        renderSeasonReport(snapshot);
+        state.autoSeasonEnabled = false;
+        setFullSeasonButtonVisual(false);
+    }
+
+    function handleGenerateClick() {
+        if (state.autoSeasonTimer) { clearTimeout(state.autoSeasonTimer); state.autoSeasonTimer = null; }
+        if (state.autoSeasonEnabled) {
+            startAutoSeason();
+            return;
+        }
+        // 手动单系统模式: 风暴从当月 1 号开始
+        state.autoSeason = null;
+        state.stormStartDay = 1;
+        startSimulation();
+    }
+    generateButton.addEventListener('click', handleGenerateClick);
+    const fullSeasonButton = document.getElementById('fullSeasonButton');
+    if (fullSeasonButton) fullSeasonButton.addEventListener('click', toggleAutoSeason);
     pauseButton.addEventListener('click', togglePause);
 
     downloadTrackButton.addEventListener('click', () => {

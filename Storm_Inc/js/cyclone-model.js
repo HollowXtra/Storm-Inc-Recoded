@@ -16,6 +16,45 @@ const basinConfig = {
     'SATL':  { lon: { min: -50,  max: 15 }, lat: { min: -25, max: -10 } }
 };
 
+// 气候学气旋生成区 (Climatological genesis zones)
+// 实际气旋并非在流域内均匀随机生成, 而是聚集在特定海域 (主发展区、季风槽、暖池西缘等),
+// 且生成纬度随季节推移。每区 mon 为 12 个月权重 [J,F,M,A,M,J,J,A,S,O,N,D] (0=休季)。
+// 南半球流域按真实季节活动 (11月~次年4月), 修正了旧的“一律在8月峰值”的北半球假设。
+const genesisZones = {
+    'WPAC': [
+        { name: 'South China Sea 南海',        lon: [108, 121.5], lat: [6, 18.5], mon: [0,0,0,0,1,2,3,3,3,3,4,2] },
+        { name: 'Philippine Sea trough 季风槽', lon: [121, 152],   lat: [8, 23],   mon: [1,1,1,1,2,3,4,5,6,5,3,2] },
+        { name: 'Far-east / dateline 远东部',   lon: [148, 178],   lat: [6, 20],   mon: [0,0,0,0,1,2,3,4,4,4,3,2] }
+    ],
+    'EPAC': [
+        { name: 'Eastern EPAC / Mexico coast', lon: [230, 260], lat: [8, 18],  mon: [0,0,0,0,1,2,3,4,4,3,2,0] },
+        { name: 'Central EPAC',                lon: [202, 232], lat: [7, 16],  mon: [0,0,0,0,0,1,2,3,3,2,1,0] },
+        { name: 'Western EPAC / CPac (rare)',  lon: [180, 204], lat: [5, 13],  mon: [0,0,0,0,0,0,1,1,2,2,0,0] }
+    ],
+    'NATL': [
+        { name: 'MDR / Cape Verde 主发展区',    lon: [300, 350], lat: [8, 17.5], mon: [0,0,0,0,0,2,5,6,7,4,2,0] },
+        { name: 'Caribbean & W tropics 加勒比', lon: [268, 302], lat: [10, 22],  mon: [0,0,0,0,1,3,4,4,5,4,2,0] },
+        { name: 'Gulf of Mexico 墨西哥湾',      lon: [260, 283], lat: [19, 29.5], mon: [0,0,0,0,2,3,3,2,3,4,2,0] },
+        { name: 'Subtropical Atlantic corridor', lon: [270, 348], lat: [22, 32],  mon: [0,0,0,0,0,0,1,2,2,2,1,0] }
+    ],
+    'NIO': [
+        { name: 'Arabian Sea 阿拉伯海', lon: [62, 75], lat: [8, 22], mon: [0,0,0,1,2,2,0,0,1,3,2,0] },
+        { name: 'Bay of Bengal 孟加拉湾', lon: [80, 97], lat: [6, 22], mon: [0,0,0,1,3,1,0,0,1,4,5,4] }
+    ],
+    'SIO': [
+        { name: 'Mozambique Channel 莫桑比克海峡', lon: [34, 46],  lat: [-15, -10], mon: [4,5,3,1,0,0,0,0,0,0,3,4] },
+        { name: 'SW Indian Ocean 西南印度洋',      lon: [46, 92],  lat: [-15, -8],  mon: [5,6,4,2,0,0,0,0,0,0,4,5] },
+        { name: 'East SIO / Cocos 东部',           lon: [90, 132], lat: [-14, -5],  mon: [4,4,3,1,0,0,0,0,0,0,3,4] }
+    ],
+    'SHEM': [
+        { name: 'Coral Sea 珊瑚海',          lon: [143, 170], lat: [-14, -7], mon: [5,5,3,1,0,0,0,0,0,0,4,4] },
+        { name: 'Central SW Pacific 斐济区', lon: [168, 200], lat: [-15, -7], mon: [6,6,4,2,0,0,0,0,0,0,4,4] }
+    ],
+    'SATL': [
+        { name: 'South Atlantic off Brazil (rare)', lon: [315, 350], lat: [-22, -12], mon: [3,4,2,1,0,0,0,0,0,0,1,1] }
+    ]
+};
+
 function calculateLayerWind(lon, lat, systems) {
     const dDeg = 0.5;
     const RE = 6371000;
@@ -137,31 +176,85 @@ export function initializeCyclone(world, month, basin = 'WPAC', globalTemp, glob
     }
     
     if (!useCustomCoords) {
-        const selectedBasin = basinConfig[basin] || basinConfig['WPAC']; // WPAC default
-        const lonRange = selectedBasin.lon;
-        const latBaseRange = selectedBasin.lat;
+        // 按气候学生成区采样: 先按当月权重挑区域, 再在区域内均匀取点,
+        // 最后用 海温/陆地 门限重试。比旧的全流域均匀随机真实得多。
+        const zones = genesisZones[basin];
+        let zoneSampled = false;
+        if (zones && zones.length) {
+            const monthIdx = Math.max(0, Math.min(11, Math.round(month) - 1));
+            let weights = zones.map(z => z.mon[monthIdx]);
+            let total = weights.reduce((s, w) => s + w, 0);
+            let equatorialOnly = false;
+            if (total <= 0) {
+                // 休季月份仍允许生成"罕见反季节系统": 退用各区域全年峰值权重, 且只取
+                // 各生成区最靠近赤道的一侧 (现实中反季节风暴也集中于暖池/近赤道边缘)
+                weights = zones.map(z => Math.max(...z.mon));
+                total = weights.reduce((s, w) => s + w, 0);
+                equatorialOnly = true;
+            }
+            if (total > 0) {
+                const cum = [];
+                let acc = 0;
+                for (const w of weights) { acc += w; cum.push(acc); }
+                const pickZone = () => {
+                    const r = Math.random() * acc;
+                    for (let i = 0; i < cum.length; i++) if (r <= cum[i]) return zones[i];
+                    return zones[zones.length - 1];
+                };
+                // 取点重试, 最多 300 次; 全部失败时退回重试期间遇到的最暖洋面点
+                let best = null;
+                for (let i = 0; i < 300; i++) {
+                    const zone = pickZone();
+                    const zSpan = zone.lat[1] - zone.lat[0];
+                    let latLo = zone.lat[0], latHi = zone.lat[1];
+                    if (equatorialOnly) {
+                        // 反季节: 只在最靠近赤道的 55% 纬度带内取点
+                        if (zone.lat[1] > 0) latHi = zone.lat[0] + zSpan * 0.55;
+                        else latLo = zone.lat[1] - zSpan * 0.55;
+                    }
+                    lon = zone.lon[0] + Math.random() * (zone.lon[1] - zone.lon[0]);
+                    lat = latLo + Math.random() * (latHi - latLo);
+                    const status = getLandStatus(lon, lat);
+                    if (status.isLand) continue;
+                    const sst = getSST(lat, lon, month, globalTemp);
+                    if (!best || sst > best.sst) best = { lon, lat, sst };
+                    if (sst >= 25.4) break;
+                }
+                if (best) {
+                    lon = best.lon;
+                    lat = best.lat;
+                    isOverLand = false;
+                    zoneSampled = true;
+                }
+            }
+        }
+        if (!zoneSampled) {
+            // 无气候学数据的流域: 退化为旧的全流域均匀随机 (保底, 保持可玩)
+            const selectedBasin = basinConfig[basin] || basinConfig['WPAC']; // WPAC default
+            const lonRange = selectedBasin.lon;
+            const latBaseRange = selectedBasin.lat;
 
-        const seasonalFactor = (Math.cos((month - 8) * (Math.PI / 6)) + 1) / 2; // 0 ~ 1
+            const seasonalFactor = (Math.cos((month - 8) * (Math.PI / 6)) + 1) / 2; // 0 ~ 1
 
-        const latRangeSpan = latBaseRange.max - latBaseRange.min;
-        const hem = latBaseRange.max > 0 ? 1 : -1;
-        const seasonalShift = latBaseRange.max > 0 ? (latRangeSpan / 4) * (seasonalFactor - 0.5) :
-        (latRangeSpan / 4) * (seasonalFactor - 0.5);
-        const currentMinLat = latBaseRange.min + seasonalShift + hem*Math.max(0,(globalTemp / 2.89 - 100));
-        const currentMaxLat = latBaseRange.max + 4 * seasonalShift + hem*(globalTemp / 2.89 - 100);
-        const latSpan = currentMaxLat - currentMinLat;
+            const latRangeSpan = latBaseRange.max - latBaseRange.min;
+            const hem = latBaseRange.max > 0 ? 1 : -1;
+            const seasonalShift = (latRangeSpan / 4) * (seasonalFactor - 0.5);
+            const currentMinLat = latBaseRange.min + seasonalShift + hem*Math.max(0,(globalTemp / 2.89 - 100));
+            const currentMaxLat = latBaseRange.max + 4 * seasonalShift + hem*(globalTemp / 2.89 - 100);
+            const latSpan = currentMaxLat - currentMinLat;
 
-        // 4. Don't spawn on land
-        let sst;
-        do {
-            lat = currentMinLat + Math.random() * latSpan;
-            lon = lonRange.min + Math.random() * (lonRange.max - lonRange.min);
-            const status = getLandStatus(lon, lat);
-            isOverLand = status.isLand;
+            // Don't spawn on land
+            let sst;
+            do {
+                lat = currentMinLat + Math.random() * latSpan;
+                lon = lonRange.min + Math.random() * (lonRange.max - lonRange.min);
+                const status = getLandStatus(lon, lat);
+                isOverLand = status.isLand;
 
-            sst = getSST(lat, lon, month, globalTemp);
+                sst = getSST(lat, lon, month, globalTemp);
 
-        } while (isOverLand || sst < 25.4); // 如果在陆地上或者海温过低，重试
+            } while (isOverLand || sst < 25.4); // 如果在陆地上或者海温过低，重试
+        }
     }
 
     // --- Subtropical ---
@@ -1129,7 +1222,7 @@ export function updateCycloneState(cyclone, pressureSystems, frontalZone, world,
         updatedCyclone.nameDesignation = meta.designation;
         updatedCyclone.isInvest = false;
         updatedCyclone.investStatus = 'named-storm';
-        console.log(`System upgraded to Tropical Storm ${meta.letter}-${meta.name} (${meta.year}, ${basinKey})`);
+        console.log(`System upgraded to Tropical Storm ${meta.letter ? meta.letter + '-' : ''}${meta.name} (${meta.year}, ${basinKey})`);
     }
     
     return updatedCyclone;

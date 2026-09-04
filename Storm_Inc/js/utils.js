@@ -16,20 +16,6 @@ export const NAME_LISTS = {
         'Nesat', 'Haitang', 'Jamjari', 'Banyan', 'Yamaneko', 'Pakhar', 'Sanvu', 'Mawar', 'Guchol', 'Talim', 'Bori', 'Khanun', 'Lan', 'Saobien'
     ],
 
-    'NATL': [
-        'Alberto', 'Beryl', 'Chris', 'Debby', 'Ernesto', 'Francine', 'Gordon', 'Helene', 'Isaac', 'Joyce', 'Kirk', 'Leslie', 'Milton', 'Nadine', 'Oscar', 'Patty', 'Rafael', 'Sara', 'Tony', 'Valerie', 'William',
-        'Andrea', 'Barry', 'Chantal', 'Dexter', 'Erin', 'Fernand', 'Gabrielle', 'Humberto', 'Imelda', 'Jerry', 'Karen', 'Lorenzo', 'Melissa', 'Nestor', 'Olga', 'Pablo', 'Rebekah', 'Sebastien', 'Tanya', 'Van', 'Wendy',
-        'Arthur', 'Bertha', 'Cristobal', 'Dolly', 'Edouard', 'Fay', 'Gonzalo', 'Hanna', 'Isaias', 'Josephine', 'Kyle', 'Leah', 'Marco', 'Nana', 'Omar', 'Paulette', 'Rene', 'Sally', 'Teddy', 'Vicky', 'Wilfred',
-        'Ana', 'Bill', 'Claudette', 'Danny', 'Elsa', 'Fred', 'Grace', 'Henri', 'Idalia', 'Julian', 'Kate', 'Larry', 'Mindy', 'Nicholas', 'Odette', 'Peter', 'Rose', 'Sam', 'Teresa', 'Victor', 'Wanda',
-        'Alex', 'Bonnie', 'Colin', 'Danielle', 'Earl', 'Farrah', 'Gaston', 'Hermine', 'Idris', 'Julia', 'Karl', 'Lisa', 'Martin', 'Nicole', 'Owen', 'Paula', 'Richard', 'Shary', 'Tobias', 'Virginie', 'Walter',
-        'Arlene', 'Bret', 'Cindy', 'Don', 'Emily', 'Franklin', 'Gert', 'Harold', 'Idalia', 'Jose', 'Katia', 'Lee', 'Margot', 'Nigel', 'Ophelia', 'Philippe', 'Rina', 'Sean', 'Tammy', 'Vince', 'Whitney'
-    ],
-    
-    'EPAC': [
-        'Aletta', 'Bud', 'Carlotta', 'Daniel', 'Emilia', 'Fabio', 'Gilma', 'Hector', 'Ileana', 'John', 'Kristy', 'Lane', 'Miriam', 'Norman', 'Olivia', 'Paul', 'Rosa', 'Sergio', 'Tara', 'Vicente', 'Willa', 'Xavier', 'Yolanda', 'Zeke',
-        'Alvin', 'Barbara', 'Cosme', 'Dalila', 'Erick', 'Flossie', 'Gil', 'Henriette', 'Ivo', 'Juliette', 'Kiko', 'Lorena', 'Mario', 'Narda', 'Octave', 'Priscilla', 'Raymond', 'Sonia', 'Tico', 'Velma', 'Wallis', 'Xina', 'York', 'Zelda'
-    ],
-
     'NIO': [
         'Nisarga', 'Gati', 'Nivar', 'Burevi', 'Tauktae', 'Yaas', 'Gulab', 'Shaheen', 'Jawad', 'Asani', 'Sitrang', 'Mandous', 'Mocha',
         'Biparjoy', 'Tej', 'Hamoon', 'Michaung', 'Remal', 'Asna', 'Dana', 'Fengal', 'Shakthi', 'Montha', 'Senyar', 'Ditwah', 'Afoor',
@@ -39,19 +25,6 @@ export const NAME_LISTS = {
         'Nishit', 'Prabho', 'Jhar', 'Upana', 'Ambud', 'Singha', 'Ghurni', 'Viyana', 'Baru', 'Ghasha', 'Kurum', 'Saffar', 'Karo'
     ],
 
-    'SIO': [
-        'Alvaro', 'Belal', 'Candice', 'Djoungou', 'Eleanor', 'Filipo', 'Gamane', 'Hidaya', 'Ialy', 'Jeremy', 'Kanga', 'Ludzi', 'Melina', 'Nathan', 'Onias', 'Pelagie', 'Quamar', 'Rita', 'Solani', 'Tarik', 'Urilia', 'Vuyane', 'Wagner', 'Xusa', 'Yarona', 'Zacarias',
-        'Ancha', 'Bheki', 'Chido', 'Dikeledi', 'Elvis', 'Faida', 'Garance', 'Hondwa', 'Ivone', 'Jude', 'Kanto', 'Lira', 'Maipelo', 'Njazi', 'Oscar', 'Pamela', 'Quentin', 'Rajab', 'Savana', 'Themba', 'Uyapo', 'Viviane', 'Walter', 'Xangy', 'Yemurai', 'Zanele',
-        'Awa', 'Boura', 'Cerane', 'Diem', 'Eyram', 'Fani', 'Gumball', 'Helako', 'Izalia', 'Joalane', 'Kacha', 'Luka', 'Maia', 'Naima', 'Osman', 'Panda', 'Quenelle', 'Rashaka', 'Sweety', 'Tiana', 'Uzo', 'Valini', 'Wilson', 'Xila', 'Yezda', 'Zidane'
-    ],
-
-    'SHEM': [
-        'Anika', 'Billy', 'Charlotte', 'Darian', 'Ellie', 'Freddy', 'Gabrielle', 'Herman', 'Ilsa', 'Jasper', 'Kirrily', 'Lincoln', 'Megan', 'Neville', 'Olga', 'Paul', 'Robyn', 'Sean', 'Tiffany', 'Urton', 'Vicki',
-        'Alessia', 'Bruce', 'Catherine', 'Dylan', 'Edna', 'Fletcher', 'Gillian', 'Hadi', 'Ivana', 'Jack', 'Kate', 'Laszlo', 'Mingzhu', 'Nathan', 'Oriana', 'Quincey', 'Raquel', 'Stan', 'Tatiana', 'Uriah', 'Yvette',
-        'Alfred', 'Blanche', 'Caleb', 'Dara', 'Ernie', 'Frances', 'Greg', 'Hilda', 'Irving', 'Joyce', 'Kelvin', 'Linda', 'Marco', 'Nora', 'Owen', 'Penny', 'Riley', 'Savannah', 'Trevor', 'Veronica', 'Wallace',
-        'Ana', 'Bina', 'Cody', 'Dovi', 'Eva', 'Fili', 'Gina', 'Hale', 'Irene', 'Judy', 'Kevin', 'Lola', 'Mal', 'Nat', 'Osi', 'Peta', 'Rae', 'Sheila', 'Tam', 'Urmil', 'Vaianu', 'Wati', 'Xavier', 'Yani', 'Zita'
-    ],
-
     'SATL': [
         'Arani', 'Bapu', 'Cari', 'Deni', 'Ecaí', 'Guará', 'Iba', 'Jaguar', 'Kurumí', 'Mani', 'Oquira', 'Potira', 'Raoni', 'Ubá', 'Yakecan',
         'Akará', 'Biguá', 'Caue', 'Domó', 'Endy', 'Guarani', 'Iguaçú', 'Jaci', 'Kaeté', 'Maracá', 'Okara', 'Poti', 'Reri', 'Sumé', 'Tupã',
@@ -59,8 +32,79 @@ export const NAME_LISTS = {
     ]
 };
 
-// Annual naming metadata. The existing basin arrays remain the source of names,
-// while these helpers add the A/B/C sequence and season year used by products.
+// Annual naming metadata.
+//
+// Real basins do not share one giant per-season list. They follow two schemes:
+//  - NATL / EPAC (NHC): six official lists in a six-year rotation. The 2024 and
+//    2025 rows are the *historical* lists actually used those seasons (Beryl,
+//    Helene, Milton, ...). The 2026-2031 rows are the current published lists,
+//    with WMO retirements and replacements already applied (Imani, Brianna,
+//    Holly, Miguel, Jake, Debora, Otilio, Winnie, ...). Other years cycle the
+//    2026-2031 rows, exactly like the real six-year cycle (2032 = 2026 list).
+//  - SIO (SW Indian Ocean): the WMO/Tropical Cyclone Committee annual lists.
+//    Rows are keyed by the calendar year of each season's core activity
+//    (2024 = 2023-24 season ... 2028 = 2027-28 season) and cycle afterwards.
+//  - SHEM (Australian region / South Pacific): published A-Z list variants,
+//    rotated one per season (approximation of the BoM/RSMC-Nadi lists).
+//  - WPAC / NIO / SATL stay in NAME_LISTS: their real schemes are single
+//    sequential published pools (JMA 140-name list, IMD pool, Brazilian Navy
+//    pool) reused in order, not a yearly rotation.
+export const SEASONAL_NAME_LISTS = {
+    'NATL': {
+        cycleStart: 2026,
+        historical: {
+            2024: ['Alberto', 'Beryl', 'Chris', 'Debby', 'Ernesto', 'Francine', 'Gordon', 'Helene', 'Isaac', 'Joyce', 'Kirk', 'Leslie', 'Milton', 'Nadine', 'Oscar', 'Patty', 'Rafael', 'Sara', 'Tony', 'Valerie', 'William'],
+            2025: ['Andrea', 'Barry', 'Chantal', 'Dexter', 'Erin', 'Fernand', 'Gabrielle', 'Humberto', 'Imelda', 'Jerry', 'Karen', 'Lorenzo', 'Melissa', 'Nestor', 'Olga', 'Pablo', 'Rebekah', 'Sebastien', 'Tanya', 'Van', 'Wendy']
+        },
+        cycle: [
+            ['Arthur', 'Bertha', 'Cristobal', 'Dolly', 'Edouard', 'Fay', 'Gonzalo', 'Hanna', 'Isaias', 'Josephine', 'Kyle', 'Leah', 'Marco', 'Nana', 'Omar', 'Paulette', 'Rene', 'Sally', 'Teddy', 'Vicky', 'Wilfred'],
+            ['Ana', 'Bill', 'Claudette', 'Danny', 'Elsa', 'Fred', 'Grace', 'Henri', 'Imani', 'Julian', 'Kate', 'Larry', 'Mindy', 'Nicholas', 'Odette', 'Peter', 'Rose', 'Sam', 'Teresa', 'Victor', 'Wanda'],
+            ['Alex', 'Bonnie', 'Colin', 'Danielle', 'Earl', 'Farrah', 'Gaston', 'Hermine', 'Idris', 'Julia', 'Karl', 'Lisa', 'Martin', 'Nicole', 'Owen', 'Paula', 'Richard', 'Shary', 'Tobias', 'Virginie', 'Walter'],
+            ['Arlene', 'Bret', 'Cindy', 'Don', 'Emily', 'Franklin', 'Gert', 'Harold', 'Idalia', 'Jose', 'Katia', 'Lee', 'Margot', 'Nigel', 'Ophelia', 'Philippe', 'Rina', 'Sean', 'Tammy', 'Vince', 'Whitney'],
+            ['Alberto', 'Brianna', 'Chris', 'Debby', 'Ernesto', 'Francine', 'Gordon', 'Holly', 'Isaac', 'Joyce', 'Kirk', 'Leslie', 'Miguel', 'Nadine', 'Oscar', 'Patty', 'Rafael', 'Sara', 'Tony', 'Valerie', 'William'],
+            ['Andrea', 'Barry', 'Chantal', 'Dexter', 'Erin', 'Fernand', 'Gabrielle', 'Humberto', 'Imelda', 'Jerry', 'Karen', 'Lorenzo', 'Molly', 'Nestor', 'Olga', 'Pablo', 'Rebekah', 'Sebastien', 'Tanya', 'Van', 'Wendy']
+        ]
+    },
+    'EPAC': {
+        cycleStart: 2026,
+        historical: {
+            2024: ['Aletta', 'Bud', 'Carlotta', 'Daniel', 'Emilia', 'Fabio', 'Gilma', 'Hector', 'Ileana', 'John', 'Kristy', 'Lane', 'Miriam', 'Norman', 'Olivia', 'Paul', 'Rosa', 'Sergio', 'Tara', 'Vicente', 'Willa', 'Xavier', 'Yolanda', 'Zeke'],
+            2025: ['Alvin', 'Barbara', 'Cosme', 'Dalila', 'Erick', 'Flossie', 'Gil', 'Henriette', 'Ivo', 'Juliette', 'Kiko', 'Lorena', 'Mario', 'Narda', 'Octave', 'Priscilla', 'Raymond', 'Sonia', 'Tico', 'Velma', 'Wallis', 'Xina', 'York', 'Zelda']
+        },
+        cycle: [
+            ['Amanda', 'Boris', 'Cristina', 'Douglas', 'Elida', 'Fausto', 'Genevieve', 'Hernan', 'Iselle', 'Julio', 'Karina', 'Lowell', 'Marie', 'Norbert', 'Odalys', 'Polo', 'Rachel', 'Simon', 'Trudy', 'Vance', 'Winnie', 'Xavier', 'Yolanda', 'Zeke'],
+            ['Andres', 'Blanca', 'Carlos', 'Dolores', 'Enrique', 'Felicia', 'Guillermo', 'Hilda', 'Ignacio', 'Jimena', 'Kevin', 'Linda', 'Marty', 'Nora', 'Olaf', 'Pamela', 'Rick', 'Sandra', 'Terry', 'Vivian', 'Waldo', 'Xina', 'York', 'Zelda'],
+            ['Agatha', 'Blas', 'Celia', 'Darby', 'Estelle', 'Frank', 'Georgette', 'Howard', 'Ivette', 'Javier', 'Kay', 'Lester', 'Madeline', 'Newton', 'Orlene', 'Paine', 'Roslyn', 'Seymour', 'Tina', 'Virgil', 'Winifred', 'Xavier', 'Yolanda', 'Zeke'],
+            ['Adrian', 'Beatriz', 'Calvin', 'Debora', 'Eugene', 'Fernanda', 'Greg', 'Hilary', 'Irwin', 'Jova', 'Kenneth', 'Lidia', 'Max', 'Norma', 'Otilio', 'Pilar', 'Ramon', 'Selma', 'Todd', 'Veronica', 'Wiley', 'Xina', 'York', 'Zelda'],
+            ['Aletta', 'Bud', 'Carlotta', 'Daniel', 'Emilia', 'Fabio', 'Gilma', 'Hector', 'Ileana', 'Jake', 'Kristy', 'Lane', 'Miriam', 'Norman', 'Olivia', 'Paul', 'Rosa', 'Sergio', 'Tara', 'Vicente', 'Willa', 'Xavier', 'Yolanda', 'Zeke'],
+            ['Alvin', 'Barbara', 'Cosme', 'Dalila', 'Erick', 'Flossie', 'Gil', 'Henriette', 'Ivo', 'Juliette', 'Kiko', 'Lorena', 'Mario', 'Narda', 'Octave', 'Priscilla', 'Raymond', 'Sonia', 'Tico', 'Velma', 'Wallis', 'Xina', 'York', 'Zelda']
+        ]
+    },
+    'SIO': {
+        cycleStart: 2024,
+        cycle: [
+            ['Alvaro', 'Belal', 'Candice', 'Djoungou', 'Eleanor', 'Filipo', 'Gamane', 'Hidaya', 'Ialy', 'Jeremy', 'Kanga', 'Ludzi', 'Melina', 'Noah', 'Onias', 'Pelagie', 'Quamar', 'Rita', 'Solani', 'Tarik', 'Urilia', 'Vuyane', 'Wagner', 'Xusa', 'Yarona', 'Zacarias'],
+            ['Ancha', 'Bheki', 'Chido', 'Dikeledi', 'Elvis', 'Faida', 'Garance', 'Honde', 'Ivone', 'Jude', 'Kanto', 'Lira', 'Maipelo', 'Njazi', 'Oscar', 'Pamela', 'Quentin', 'Rajab', 'Savana', 'Themba', 'Uyapo', 'Viviane', 'Walter', 'Xangy', 'Yemurai', 'Zanele'],
+            ['Awo', 'Blossom', 'Chenge', 'Dudzai', 'Ewetse', 'Fytia', 'Gezani', 'Horacio', 'Indusa', 'Juluka', 'Kundai', 'Lisebo', 'Michel', 'Nousra', 'Olivier', 'Pokera', 'Quincy', 'Rebaone', 'Salama', 'Tristan', 'Ursula', 'Violet', 'Wilson', 'Xila', 'Yekela', 'Zaina'],
+            ['Agueda', 'Bertrand', 'Celiwe', 'Dira', 'Emmie', 'Fikri', 'Gumbo', 'Hisna', 'Isaura', 'Jeremy', 'Kanga', 'Kalulu', 'Ludzi', 'Melina', 'Noah', 'Onias', 'Oscar', 'Peta', 'Quamar', 'Rita', 'Solani', 'Tarik', 'Urilia', 'Vuyane', 'Wagner', 'Xusa', 'Yarona', 'Zacarias'],
+            ['Ainga', 'Basil', 'Cassia', 'Deba', 'Etienne', 'Fatuma', 'Gori', 'Henning', 'Itai', 'Josha', 'Kalulu', 'Letlama', 'Maipelo', 'Njazi', 'Oscar', 'Pamela', 'Quentin', 'Rouma', 'Soary', 'Themba', 'Uyapo', 'Viviane', 'Walter', 'Xavier', 'Yemurai', 'Zanele']
+        ]
+    },
+    'SHEM': {
+        cycleStart: 2023,
+        cycle: [
+            ['Anika', 'Billy', 'Charlotte', 'Darian', 'Ellie', 'Freddy', 'Gabrielle', 'Herman', 'Ilsa', 'Jasper', 'Kirrily', 'Lincoln', 'Megan', 'Neville', 'Olga', 'Paul', 'Robyn', 'Sean', 'Tiffany', 'Urton', 'Vicki'],
+            ['Alessia', 'Bruce', 'Catherine', 'Dylan', 'Edna', 'Fletcher', 'Gillian', 'Hadi', 'Ivana', 'Jack', 'Kate', 'Laszlo', 'Mingzhu', 'Nathan', 'Oriana', 'Quincey', 'Raquel', 'Stan', 'Tatiana', 'Uriah', 'Yvette'],
+            ['Alfred', 'Blanche', 'Caleb', 'Dara', 'Ernie', 'Frances', 'Greg', 'Hilda', 'Irving', 'Joyce', 'Kelvin', 'Linda', 'Marco', 'Nora', 'Owen', 'Penny', 'Riley', 'Savannah', 'Trevor', 'Veronica', 'Wallace'],
+            ['Ana', 'Bina', 'Cody', 'Dovi', 'Eva', 'Fili', 'Gina', 'Hale', 'Irene', 'Judy', 'Kevin', 'Lola', 'Mal', 'Nat', 'Osi', 'Peta', 'Rae', 'Sheila', 'Tam', 'Urmil', 'Vaianu', 'Wati', 'Xavier', 'Yani', 'Zita']
+        ]
+    }
+};
+
+// Basins whose public naming is lettered (a seasonal A/B/C sequence). WPAC
+// (JMA) and NIO (IMD) publish plain names with no list letters.
+const LETTERED_BASINS = new Set(['NATL', 'EPAC', 'SIO', 'SHEM', 'SATL']);
+
 export const RETIRED_STORM_NAMES = {
     WPAC: ['Haiyan', 'Mangkhut', 'Yutu'],
     EPAC: ['Patricia', 'Otis'],
@@ -72,11 +116,34 @@ export const RETIRED_STORM_NAMES = {
 };
 
 export function getSeasonNameList(basin = 'WPAC', year = new Date().getFullYear()) {
+    const seasonal = SEASONAL_NAME_LISTS[basin];
+    if (seasonal) {
+        if (seasonal.historical && seasonal.historical[year]) return [...seasonal.historical[year]];
+        const { cycleStart, cycle } = seasonal;
+        const index = (((year - cycleStart) % cycle.length) + cycle.length) % cycle.length;
+        return [...cycle[index]];
+    }
+    // Sequential pools (WPAC / NIO / SATL) are copied so callers cannot mutate
+    // the canonical list. The year is metadata only: those basins restart at
+    // the top of their published list each season.
     const list = NAME_LISTS[basin] || NAME_LISTS.WPAC;
-    // Copy the array so a product cannot mutate the canonical list. The year is
-    // intentionally metadata rather than a random rotation: a replay remains
-    // reproducible while the advisory still identifies its season.
     return [...list];
+}
+
+// The lists a season may draw from: its own list first, then the later lists
+// in the rotation — a record season rolls over the way the real basins switch
+// to their supplemental / next-published list.
+function getSeasonListSequence(basin, year) {
+    const seasonal = SEASONAL_NAME_LISTS[basin];
+    if (!seasonal) return null;
+    const sequence = [];
+    if (seasonal.historical && seasonal.historical[year]) sequence.push(seasonal.historical[year]);
+    const { cycleStart, cycle } = seasonal;
+    const start = (((year - cycleStart) % cycle.length) + cycle.length) % cycle.length;
+    for (let offset = 0; offset < cycle.length; offset++) {
+        sequence.push(cycle[(start + offset) % cycle.length]);
+    }
+    return sequence;
 }
 
 export function isRetiredStormName(name, basin = 'WPAC') {
@@ -86,16 +153,39 @@ export function isRetiredStormName(name, basin = 'WPAC') {
 }
 
 export function getStormNameMeta(basin = 'WPAC', index = 0, year = new Date().getFullYear()) {
-    const list = getSeasonNameList(basin, year);
-    const safeIndex = Math.max(0, Number.isFinite(index) ? Math.floor(index) : 0) % list.length;
-    const letter = String.fromCharCode(65 + (safeIndex % 26));
-    const name = list[safeIndex];
+    const safeIndex = Math.max(0, Number.isFinite(index) ? Math.floor(index) : 0);
+    const sequence = getSeasonListSequence(basin, year);
+    let name = '';
+    let listPosition = 0;
+    if (sequence) {
+        let remaining = safeIndex;
+        let chosen = null;
+        for (const list of sequence) {
+            if (remaining < list.length) {
+                chosen = list;
+                listPosition = remaining;
+                break;
+            }
+            remaining -= list.length;
+        }
+        if (!chosen) {
+            chosen = sequence[sequence.length - 1];
+            listPosition = remaining % chosen.length;
+        }
+        name = chosen[listPosition];
+    } else {
+        const list = NAME_LISTS[basin] || NAME_LISTS.WPAC;
+        listPosition = safeIndex % list.length;
+        name = list[listPosition];
+    }
+    const lettered = LETTERED_BASINS.has(basin);
+    const letter = lettered && name ? String(name).charAt(0).toUpperCase() : '';
     return {
         name,
         letter,
         index: safeIndex,
         year,
-        designation: `${year}-${letter}`,
+        designation: letter ? `${year}-${letter}` : `${year}-${String(safeIndex + 1).padStart(2, '0')}`,
         retired: isRetiredStormName(name, basin)
     };
 }
@@ -318,50 +408,99 @@ export const directionToCompass = deg => {
     return arr[(val % 16)];
 };
 
-// --- 洋流配置表 (重构优化) ---
-const OCEAN_CURRENTS = [
-    { name: "Cali", lat: 30, lon: -125, max: -3.0, sLat: 15, sLon: 50 },  // 加利福尼亚寒流
-    { name: "Gulf", lat: 38, lon: -60,  max: 5.0,  sLat: 20, sLon: 30 },  // 北大西洋暖流
-    { name: "SCS",  lat: 20, lon: 115,  max: -1.0, sLat: 20, sLon: 8, seasonal: true }, // 南海
-    { name: "Canary", lat: 30, lon: -20, max: -4.5, sLat: 30, sLon: 45 }, // 加那利寒流
-    { name: "Japan", lat: 27, lon: 140, max: 1.0,  sLat: 5,  sLon: 20 },  // 日本暖流
-    { name: "GOM",   lat: 25, lon: -90, max: 3.0,  sLat: 7,  sLon: 10 },  // 墨西哥湾
-    { name: "Somalia", lat: 10, lon: 50, max: -4.5, sLat: 10, sLon: 15 }, // 索马里寒流
-    { name: "Benguela", lat: -25, lon: 5, max: -5.0, sLat: 15, sLon: 20 },// 本格拉寒流
-    { name: "WestAus", lat: -35, lon: 105, max: -2.0, sLat: 15, sLon: 20 }, // 西澳寒流
-    { name: "Peru", lat: -15, lon: -80, max: -6.0, sLat: 15, sLon: 20 }, // 秘鲁寒流
-    { name: "Seq", lat: -10, lon: 100, max: 2.0, sLat: 5, sLon: 40 } // 南赤道暖流
+// --- 海温气候学 (Realistic sea-surface-temperature climatology) ---
+//
+// getSST returns °C. The model is built from three layers:
+//   1. A latitude + season base: real open-ocean monthly climatology curves
+//      for each hemisphere (peaks in local summer), blended across the
+//      equator so the deep tropics keep a small, realistic annual range.
+//   2. Large-scale climate features: the WPAC warm pool, Bay of Bengal /
+//      Arabian Sea heat, the eastern-Pacific & Gulf-of-Guinea cold tongues
+//      (seasonal), the Caribbean & Loop Current.
+//   3. Narrow boundary currents: Gulf Stream & Kuroshio warm ribbons,
+//      California / Canary / Peru / Benguela / Somali / West-Australia cool
+//      ribbons, Agulhas warmth, plus monsoon-driven coastal upwelling.
+// The global-temp slider (Kelvin offset from 289 K) shifts the result by
+// ~0.5 °C per K, clamped to a sane ±5 °C.
+//
+// Latitude anchors: °C at 0,5,...,70 lat for each hemisphere's warm and cool
+// solstice (approx. real basin interiors).
+const SST_NH_SUMMER = [27.2, 28.6, 28.8, 28.5, 28.3, 28.2, 27.3, 24.8, 20.8, 16.5, 13.2, 10.5, 8.6, 6.2, 4.0];
+const SST_NH_WINTER = [26.9, 27.7, 26.9, 25.7, 24.3, 22.7, 19.9, 15.0, 11.2, 8.8, 6.8, 5.0, 3.0, 1.6, 0.0];
+const SST_SH_SUMMER = [27.2, 28.6, 29.0, 28.4, 27.1, 25.3, 22.9, 19.6, 15.7, 12.5, 9.5, 6.8, 4.2, 2.2, 0.4];
+const SST_SH_WINTER = [26.9, 27.5, 26.5, 25.3, 23.1, 20.6, 17.6, 14.9, 12.1, 9.5, 7.0, 5.0, 2.8, 1.2, -0.6];
+
+function sstAnchorLookup(table, latAbs) {
+    const lat = Math.max(0, Math.min(70, latAbs));
+    const step = lat / 5;
+    const i = Math.min(table.length - 2, Math.floor(step));
+    const frac = step - i;
+    return table[i] + (table[i + 1] - table[i]) * frac;
+}
+
+function sstSeasonalBase(lat, month) {
+    const absLat = Math.abs(lat);
+    // Hemisphere seasonal position: 0 = cool solstice, 1 = warm solstice.
+    const nhPos = (Math.cos((month - 8) * (Math.PI / 6)) + 1) / 2;  // peaks in Aug
+    const shPos = (1 - Math.cos((month - 8) * (Math.PI / 6))) / 2;  // peaks in Feb
+    const nhSst = sstAnchorLookup(SST_NH_WINTER, absLat) + nhPos * (sstAnchorLookup(SST_NH_SUMMER, absLat) - sstAnchorLookup(SST_NH_WINTER, absLat));
+    const shSst = sstAnchorLookup(SST_SH_WINTER, absLat) + shPos * (sstAnchorLookup(SST_SH_SUMMER, absLat) - sstAnchorLookup(SST_SH_WINTER, absLat));
+    // Blend the two hemispheric curves across the equatorial band (±12°).
+    const nhWeight = Math.max(0, Math.min(1, (lat + 12) / 24));
+    return nhSst * nhWeight + shSst * (1 - nhWeight);
+}
+
+// Seasonal envelope: 1 at `center`, smoothly to 0 at center ± `half` months.
+function seasonalFactor(month, center, half) {
+    let d = Math.abs(month - center);
+    if (d > 6) d = 12 - d;
+    if (d >= half) return 0;
+    return Math.cos((d / half) * (Math.PI / 2));
+}
+
+// Large-scale climate anomalies and boundary currents (gaussian blobs; values
+// are peak °C anomalies from the open-ocean climatology). Optional seasonal
+// entries only act during their active window (monsoon upwelling, cold tongues).
+const SST_ANOMALIES = [
+    // --- Warm features ---
+    { name: 'WPac warm pool',     lat: 12,  lon: 141,  max: 1.0,  sLat: 14, sLon: 30 },
+    { name: 'Bay of Bengal',      lat: 14,  lon: 89,   max: 0.9,  sLat: 7,  sLon: 7 },
+    { name: 'Arabian Sea',        lat: 15,  lon: 65,   max: 0.5,  sLat: 9,  sLon: 8 },
+    { name: 'Caribbean',          lat: 16.5, lon: -77, max: 0.45, sLat: 6,  sLon: 7 },
+    { name: 'Loop Current',       lat: 26,  lon: -88,  max: 1.0,  sLat: 5,  sLon: 6 },
+    { name: 'Gulf Stream (winter)',       lat: 37,   lon: -73,   max: 3.2,  sLat: 3.2, sLon: 5,   center: 1.8, half: 3.3 },
+    { name: 'Gulf Stream north (winter)', lat: 41,   lon: -63,   max: 1.8,  sLat: 3,   sLon: 6,   center: 1.8, half: 3.3 },
+    { name: 'Kuroshio (winter)',          lat: 30.8, lon: 132.5, max: 2.6,  sLat: 2.6, sLon: 4.2, center: 1.8, half: 3.3 },
+    { name: 'NW Pacific interior (winter cool)', lat: 29, lon: 152, max: -1.3, sLat: 9, sLon: 20, center: 2, half: 3.5 },
+    { name: 'Agulhas',            lat: -33, lon: 29,   max: 2.4,  sLat: 3.5, sLon: 5 },
+    // --- Cold features ---
+    { name: 'California cold',    lat: 34,  lon: -121, max: -2.6, sLat: 6,  sLon: 5 },
+    { name: 'Canary cold',        lat: 26,  lon: -16.5, max: -2.4, sLat: 7, sLon: 6 },
+    { name: 'Peru / Humboldt',    lat: -14, lon: -77,  max: -3.0, sLat: 6,  sLon: 6 },
+    { name: 'Benguela cold',      lat: -24, lon: 12.5, max: -2.6, sLat: 7,  sLon: 7 },
+    { name: 'West Australia cold', lat: -27, lon: 113.5, max: -1.3, sLat: 6, sLon: 6 },
+    // --- Seasonal cold tongues & monsoon upwelling ---
+    { name: 'EPac cold tongue',   lat: 0.5, lon: -107, max: -2.4, sLat: 4.5, sLon: 20, center: 9.5, half: 4.2 },
+    { name: 'Guinea cold tongue', lat: 3.5, lon: -2,   max: -1.5, sLat: 3.5, sLon: 6, center: 8.5, half: 2.0 },
+    { name: 'Somali upwelling',   lat: 9.5, lon: 51.5, max: -3.4, sLat: 3.5, sLon: 4.5, center: 7.5, half: 2.2 },
+    { name: 'Arabian upwelling',  lat: 16.5, lon: 57.5, max: -1.5, sLat: 4,  sLon: 6, center: 8, half: 2.5 }
 ];
 
-export function getSST(lat, lon, month, globalTempK = 289) { 
-    const BASELINE_TEMP_K = 289.0;
-    const tempAnomaly = globalTempK - BASELINE_TEMP_K;
-    
-    const seasonalModifier = lat > 0 ? 2.8 + Math.cos((month - 8) * (Math.PI / 6)) * 1.7
-    : 2.0 - Math.cos((month - 8) * (Math.PI / 6)) * 1.3;
-    
-    let baseSST = Math.abs(lat) < 12 ? (31.9 + 0.6 * tempAnomaly) : Math.max(10, (31.9 + 0.6 * tempAnomaly) - (Math.abs(lat) - 12) / seasonalModifier + Math.abs(lat / 60) ** 1.6);
+export function getSST(lat, lon, month, globalTempK = 289) {
+    let sst = sstSeasonalBase(lat, month);
 
-    // [重构] 循环处理洋流调整
-    let currentAdjustment = 0;
-    
-    OCEAN_CURRENTS.forEach(curr => {
-        const dLon = shortestLongitudeDistance(lon, curr.lon);
-        const dLat = lat - curr.lat;
-        
-        let maxEffect = curr.max;
-        let sigmaLon = curr.sLon;
-
-        // 特殊处理南海的季节性变化
-        if (curr.seasonal) {
-            maxEffect = -0.8 - 0.5 * Math.abs(month - 8);
-            sigmaLon = 8 + Math.abs(month - 8);
-        }
-
-        const influence = Math.exp(-( (dLon**2) / (2 * sigmaLon**2) + (dLat**2) / (2 * curr.sLat**2) ));
-        currentAdjustment += maxEffect * influence;
+    SST_ANOMALIES.forEach(feature => {
+        const dLon = shortestLongitudeDistance(lon, feature.lon);
+        const dLat = lat - feature.lat;
+        const influence = Math.exp(-( (dLon * dLon) / (2 * feature.sLon * feature.sLon) + (dLat * dLat) / (2 * feature.sLat * feature.sLat) ));
+        let magnitude = feature.max;
+        if (feature.center != null) magnitude *= seasonalFactor(month, feature.center, feature.half);
+        sst += magnitude * influence;
     });
 
-    baseSST += currentAdjustment;
-    return Math.max(0, Math.min(60, baseSST));
+    // Global-temperature (Kelvin) offset from the 289 K baseline, damped.
+    const tempAnomaly = globalTempK - 289.0;
+    sst += Math.max(-5, Math.min(5, tempAnomaly * 0.5));
+
+    return Math.max(-1.9, Math.min(33.5, sst));
 }
